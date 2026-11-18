@@ -83,6 +83,7 @@ func _build_ui() -> void:
 	ui.add_child(main_menu)
 	main_menu.start_requested.connect(start_game)
 	main_menu.settings_requested.connect(_open_settings_from_menu)
+	main_menu.quit_requested.connect(_quit_game)
 
 	pause_menu = PAUSE_MENU.new()
 	pause_menu.name = "PauseMenu"
@@ -196,6 +197,9 @@ func _cleanup_run() -> void:
 	for pr in get_tree().get_nodes_in_group("projectiles"):
 		if is_instance_valid(pr):
 			_free_now(pr)
+	for th in get_tree().get_nodes_in_group("throwables"):
+		if is_instance_valid(th):
+			_free_now(th)
 	for c in get_children():
 		if c.is_in_group("player"):
 			_free_now(c)
@@ -265,6 +269,10 @@ func _on_settings_closed() -> void:
 	elif state == State.MENU:
 		main_menu.first_button().grab_focus()
 
+func _quit_game() -> void:
+	Settings.save_settings()
+	get_tree().quit()
+
 func _restart_game() -> void:
 	get_tree().paused = false
 	start_game()
@@ -287,6 +295,8 @@ func _go_to_menu() -> void:
 # ------------------------------------------------------------------ waves
 func _start_wave(index: int) -> void:
 	wave_index = index - 1
+	if player and is_instance_valid(player):
+		player.ensure_min_health(0.45)
 	var def: Dictionary = _wave_def(index)
 	_spawn_queue.clear()
 	for i in int(def["scouts"]):
@@ -339,6 +349,7 @@ func _on_buy(id: String) -> void:
 	match id:
 		"ammo":
 			player.get_weapon().refill_all()
+			player.add_grenades(2)
 		"med":
 			player.heal(player.max_health)
 		"armor":

@@ -9,7 +9,11 @@ var _sens: HSlider
 var _volume: HSlider
 var _shake: HSlider
 var _fullscreen: CheckButton
+var _sens_value: Label
+var _volume_value: Label
+var _shake_value: Label
 var _dirty := false
+var _last_range: Label
 var _back: Button
 
 func _ready() -> void:
@@ -53,6 +57,7 @@ func _build() -> void:
 	v.add_child(RubezhUI.vspacer(30))
 
 	_sens = _row(v, "ЧУВСТВИТЕЛЬНОСТЬ МЫШИ", "0.15 — 2.50")
+	_sens_value = _last_range
 	_sens.min_value = 0.15
 	_sens.max_value = 2.5
 	_sens.step = 0.05
@@ -61,6 +66,7 @@ func _build() -> void:
 	v.add_child(RubezhUI.vspacer(16))
 
 	_volume = _row(v, "ГРОМКОСТЬ", "0 — 100%")
+	_volume_value = _last_range
 	_volume.min_value = 0.0
 	_volume.max_value = 1.0
 	_volume.step = 0.01
@@ -69,6 +75,7 @@ func _build() -> void:
 	v.add_child(RubezhUI.vspacer(16))
 
 	_shake = _row(v, "ТРЯСКА КАМЕРЫ", "0 — 150%")
+	_shake_value = _last_range
 	_shake.min_value = 0.0
 	_shake.max_value = 1.5
 	_shake.step = 0.05
@@ -77,7 +84,7 @@ func _build() -> void:
 	v.add_child(RubezhUI.vspacer(22))
 
 	_fullscreen = RubezhUI.checkbox("ПОЛНОЭКРАННЫЙ РЕЖИМ", Settings.fullscreen)
-	_fullscreen.pressed.connect(func(val: bool):
+	_fullscreen.toggled.connect(func(val: bool):
 		Settings.fullscreen = val
 		Settings.apply()
 		_dirty = true)
@@ -97,7 +104,7 @@ func _build() -> void:
 	reset.pressed.connect(func(): _reset())
 	row.add_child(reset)
 	v.add_child(RubezhUI.vspacer(14))
-	v.add_child(RubezhUI.label("ИЗМЕНЕНИЯ СОХРАНЯЮТСЯ АВТОМАТИЧЕСКИ", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM))
+	v.add_child(RubezhUI.label("НАЗАД — СОХРАНИТЬ И ВЫЙТИ", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM))
 
 func _row(parent: VBoxContainer, title: String, range_text: String) -> HSlider:
 	var head := HBoxContainer.new()
@@ -108,6 +115,7 @@ func _row(parent: VBoxContainer, title: String, range_text: String) -> HSlider:
 	head.add_child(sp)
 	var rng := RubezhUI.label(range_text, 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
 	head.add_child(rng)
+	_last_range = rng
 	var s := RubezhUI.slider(0.5, 0.0, 1.0)
 	s.custom_minimum_size = Vector2(480, 26)
 	parent.add_child(s)
@@ -115,15 +123,18 @@ func _row(parent: VBoxContainer, title: String, range_text: String) -> HSlider:
 
 func _on_sens(value: float) -> void:
 	Settings.mouse_sensitivity = value
+	_sens_value.text = "%.2f" % value
 	_dirty = true
 
 func _on_volume(value: float) -> void:
 	Settings.master_volume = value
+	_volume_value.text = "%d%%" % int(value * 100.0)
 	Settings.apply()
 	_dirty = true
 
 func _on_shake(value: float) -> void:
 	Settings.screen_shake = value
+	_shake_value.text = "%d%%" % int(value * 100.0)
 	_dirty = true
 
 func _reset() -> void:
@@ -135,6 +146,9 @@ func _reset() -> void:
 	_sens.value = 1.0
 	_volume.value = 0.8
 	_shake.value = 1.0
+	_sens_value.text = "1.00"
+	_volume_value.text = "80%"
+	_shake_value.text = "100%"
 	_fullscreen.button_pressed = false
 	_dirty = true
 	AudioManager.play("ui_click")
@@ -143,6 +157,9 @@ func open() -> void:
 	_sens.value = Settings.mouse_sensitivity
 	_volume.value = Settings.master_volume
 	_shake.value = Settings.screen_shake
+	_sens_value.text = "%.2f" % Settings.mouse_sensitivity
+	_volume_value.text = "%d%%" % int(Settings.master_volume * 100.0)
+	_shake_value.text = "%d%%" % int(Settings.screen_shake * 100.0)
 	_fullscreen.button_pressed = Settings.fullscreen
 	_dirty = false
 	visible = true

@@ -36,6 +36,8 @@ var _banner_sub: Label
 var _banner_tween: Tween
 var _notice_label: Label
 var _notice_tween: Tween
+var _grenade_status: Label
+var _knife_status: Label
 
 var _red: TextureRect
 var _damage_flash := 0.0
@@ -62,6 +64,7 @@ func _ready() -> void:
 	_build_boss()
 	_build_banner()
 	_build_notice()
+	_build_throwables()
 	set_process(true)
 
 func _build_vignettes() -> void:
@@ -271,7 +274,7 @@ func _build_notice() -> void:
 	_notice_label.modulate.a = 0.0
 	_notice_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_notice_label)
-	var hint := RubezhUI.label("WASD — ДВИЖЕНИЕ   ·   ЛКМ — ОГОНЬ   ·   ПКМ — ПРИЦЕЛ   ·   1–3 / КОЛЕСО — ОРУЖИЕ   ·   R — ПЕРЕЗАРЯДКА   ·   ESC — ПАУЗА", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
+	var hint := RubezhUI.label("WASD — ДВИЖЕНИЕ   ·   ЛКМ — ОГОНЬ   ·   ПКМ — ПРИЦЕЛ   ·   1–3 / КОЛЕСО — ОРУЖИЕ   ·   V — НОЖ   ·   G — ГРАНАТА   ·   R — ПЕРЕЗАРЯДКА   ·   ESC — ПАУЗА", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
 	hint.anchor_left = 0.5
 	hint.anchor_right = 0.5
 	hint.anchor_top = 1.0
@@ -284,6 +287,25 @@ func _build_notice() -> void:
 	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(hint)
 
+func _build_throwables() -> void:
+	var box := PanelContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	box.offset_left = -150
+	box.offset_right = 150
+	box.offset_top = -92
+	box.offset_bottom = -56
+	box.add_theme_stylebox_override("panel", RubezhUI.style_box(Color(0.02, 0.028, 0.035, 0.55), Color(1, 1, 1, 0.06), 1, 3))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(box)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(row)
+	_grenade_status = RubezhUI.label("ГРАНАТА ×2 [G]", 11, RubezhUI.TEXT, RubezhUI.FONT_BOLD)
+	_knife_status = RubezhUI.label("НОЖ [V]", 11, RubezhUI.MUTED, RubezhUI.FONT_BOLD)
+	row.add_child(_grenade_status)
+	row.add_child(_knife_status)
+
 func _process(delta: float) -> void:
 	_time += delta
 	_damage_flash = maxf(0.0, _damage_flash - delta * 1.6)
@@ -294,6 +316,19 @@ func _process(delta: float) -> void:
 		_display_score = _score_target
 	_score_label.text = _fmt(_display_score)
 	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		var gc: float = player.get_grenade_cd()
+		var kc: float = player.get_knife_cd()
+		var g_cd_text := ""
+		if gc > 0.0:
+			g_cd_text = " %.1f" % gc
+		var k_cd_text := ""
+		if kc > 0.0:
+			k_cd_text = " %.1f" % kc
+		_grenade_status.text = "ГРАНАТА ×%d [G]%s" % [player.get_grenades(), g_cd_text]
+		_knife_status.text = "НОЖ [V]%s" % k_cd_text
+		_grenade_status.add_theme_color_override("font_color", RubezhUI.DIM if gc > 0.0 or player.get_grenades() <= 0 else RubezhUI.TEXT)
+		_knife_status.add_theme_color_override("font_color", RubezhUI.DIM if kc > 0.0 else RubezhUI.MUTED)
 	if player and player.get_weapon():
 		var weapon = player.get_weapon()
 		_reload_bar.value = weapon.get_reload_fraction() * 100.0

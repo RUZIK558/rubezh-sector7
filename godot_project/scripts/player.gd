@@ -7,6 +7,7 @@ signal died
 signal damaged(amount: float, source: Vector3)
 signal notice(text: String)
 
+const THROWABLE := preload("res://scripts/throwable.gd")
 const WALK_SPEED := 5.6
 const SPRINT_SPEED := 7.8
 const CROUCH_SPEED := 2.8
@@ -30,6 +31,9 @@ var trauma := 0.0
 var _shake_time := 0.0
 var _time_since_damage := 99.0
 var invuln := 0.0
+var grenades_left := 2
+var knife_cd := 0.0
+var grenade_cd := 0.0
 var _bob_time := 0.0
 var _bob_amount := 0.0
 var _land_offset := 0.0
@@ -68,13 +72,53 @@ func _physics_process(delta: float) -> void:
 		return
 	_time_since_damage += delta
 	invuln = maxf(0.0, invuln - delta)
-	_regen(delta)
+	_update_throwables(delta)
 	_update_camera(delta)
 	if dead:
 		velocity.y -= GRAVITY * delta
 		move_and_slide()
 		return
 	_movement(delta)
+
+func _update_throwables(delta: float) -> void:
+	knife_cd = maxf(0.0, knife_cd - delta)
+	grenade_cd = maxf(0.0, grenade_cd - delta)
+	if not active or dead:
+		return
+	if Input.is_action_just_pressed("throw_knife") and knife_cd <= 0.0:
+		_throw(false)
+	if Input.is_action_just_pressed("grenade") and grenade_cd <= 0.0 and grenades_left > 0:
+		_throw(true)
+
+func _throw(grenade: bool) -> void:
+	var t = THROWABLE.new()
+	t.kind = 1 if grenade else 0
+	var scene := get_tree().current_scene
+	scene.add_child(t)
+	var from := camera.global_position + camera.global_basis.x * 0.18 - camera.global_basis.z * 0.45
+	var dir := -camera.global_basis.z
+	t.launch(from, dir, 16.0 if grenade else 24.0)
+	if grenade:
+		grenades_left -= 1
+		grenade_cd = 4.0
+		AudioManager.play("knife_swing", -1.0, 0.8)
+	else:
+		knife_cd = 6.0
+		AudioManager.play("knife_swing", -1.0, 1.12)
+	add_trauma(0.04)
+
+func add_grenades(amount: int) -> void:
+	grenades_left = mini(4, grenades_left + amount)
+	notice.emit("+%d ГРАНАТ" % amount)
+
+func get_knife_cd() -> float:
+	return knife_cd
+
+func get_grenade_cd() -> float:
+	return grenade_cd
+
+func get_grenades() -> int:
+	return grenades_left
 
 func _movement(delta: float) -> void:
 	var on_floor := is_on_floor()
@@ -132,11 +176,12 @@ func _clamp_to_arena() -> void:
 	global_position.x = clampf(global_position.x, -31.3, 31.3)
 	global_position.z = clampf(global_position.z, -27.3, 27.3)
 
-func _regen(delta: float) -> void:
+func ensure_min_health(fraction: float) -> void:
 	if dead:
 		return
-	if _time_since_damage > 10.0 and health < max_health:
-		health = minf(max_health, health + 8.0 * delta)
+	var minimum := maxf(1.0, max_health * fraction)
+	if health < minimum:
+		health = minimum
 		health_changed.emit(health, max_health)
 
 func _update_camera(delta: float) -> void:
@@ -233,6 +278,9 @@ func reset_player(pos: Vector3, look_yaw := 0.0) -> void:
 	trauma = 0.0
 	_time_since_damage = 99.0
 	invuln = 1.2
+	grenades_left = 2
+	knife_cd = 0.0
+	grenade_cd = 0.0
 	head.position = Vector3(0, 1.62, 0)
 	camera.rotation = Vector3.ZERO
 	_crouch_mix = 0.0

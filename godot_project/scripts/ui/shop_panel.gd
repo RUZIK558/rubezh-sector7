@@ -12,7 +12,7 @@ const ICON_MED := preload("res://assets/textures/shop_med.png")
 const ICON_ARMOR := preload("res://assets/textures/shop_armor.png")
 
 const ITEMS := [
-	{"id": "ammo", "name": "БОЕПРИПАСЫ", "desc": "Пополнить магазины и резерв", "price": 60, "icon": 0},
+	{"id": "ammo", "name": "БОЕПРИПАСЫ", "desc": "Патроны и 2 гранаты", "price": 60, "icon": 0},
 	{"id": "med", "name": "АПТЕЧКА", "desc": "Полное восстановление здоровья", "price": 80, "icon": 3},
 	{"id": "armor", "name": "БРОНЕПЛАСТИНА", "desc": "+25 к макс. здоровью", "price": 140, "icon": 4},
 	{"id": "damage", "name": "БОЕВОЙ ЗАРЯД", "desc": "+15% урона всем оружиям", "price": 180, "icon": 0},

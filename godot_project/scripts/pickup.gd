@@ -64,6 +64,7 @@ func _on_body(body: Node) -> void:
 	_taken = true
 	if kind == "ammo":
 		body.add_ammo(60)
+		body.add_grenades(1)
 		AudioManager.play("pickup_ammo", -3.0, randf_range(0.98, 1.05))
 		FX.spawn_burst(global_position + Vector3.UP * 0.4, Color(0.2, 1.0, 0.45), 7)
 	else:

@@ -39,4 +39,4 @@ func apply() -> void:
 	AudioServer.set_bus_mute(bus, master_volume <= 0.001)
 	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 	if DisplayServer.window_get_mode() != mode:
-		DisplayServer.window_set_mode(mode)
+		DisplayServer.window_set_mode.call_deferred(mode)
