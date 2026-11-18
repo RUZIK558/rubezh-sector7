@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://xypu5hgc2rra"]
+
+[ext_resource type="PackedScene" uid="uid://b3r7qi0sflwvw" path="res://ak47.glb" id="1_ig7tw"]
+
+[node name="Main" type="Node3D" unique_id=297852766]
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=649067592]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.01, -0.066, 0.9)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=84016393]
+
+[node name="AK47" parent="." unique_id=1310722991 instance=ExtResource("1_ig7tw")]

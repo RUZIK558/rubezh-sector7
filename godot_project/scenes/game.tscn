@@ -1,0 +1,46 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
+[ext_resource type="Script" path="res://scripts/arena.gd" id="2_arena"]
+
+[sub_resource type="Environment" id="Environment_night"]
+background_mode = 1
+background_color = Color(0.026, 0.037, 0.052, 1)
+ambient_light_source = 1
+ambient_light_color = Color(0.23, 0.28, 0.36, 1)
+ambient_light_energy = 0.42
+fog_enabled = true
+fog_light_color = Color(0.09, 0.12, 0.16, 1)
+fog_density = 0.009
+fog_sky_affect = 0.15
+tonemap_mode = 3
+tonemap_exposure = 1.05
+tonemap_white = 1.0
+adjustment_enabled = true
+adjustment_brightness = 1.0
+adjustment_contrast = 1.07
+adjustment_saturation = 1.05
+
+[node name="Game" type="Node3D"]
+script = ExtResource("1_game")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_night")
+
+[node name="Moon" type="DirectionalLight3D" parent="."]
+light_color = Color(0.62, 0.74, 1.0, 1)
+light_energy = 0.85
+shadow_enabled = true
+shadow_bias = 0.035
+
+[node name="Arena" type="Node3D" parent="."]
+script = ExtResource("2_arena")
+
+[node name="MenuCamera" type="Camera3D" parent="."]
+current = true
+fov = 62.0
+near = 0.05
+far = 300.0
+
+[node name="UI" type="CanvasLayer" parent="."]
+layer = 10

@@ -1,0 +1,7 @@
+.godot/
+addons/godot_mcp/cache/
+*.blend1
+*.tmp
+__pycache__/
+*.pyc
+builds/
