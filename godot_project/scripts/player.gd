@@ -85,7 +85,11 @@ func _update_throwables(delta: float) -> void:
 	grenade_cd = maxf(0.0, grenade_cd - delta)
 	if not active or dead:
 		return
+	var knife_equipped: bool = weapon != null and weapon.is_melee
+	# Quick throw on V, or aim with RMB and release to throw.
 	if Input.is_action_just_pressed("throw_knife") and knife_cd <= 0.0:
+		_throw(false)
+	if knife_equipped and Input.is_action_just_released("aim") and knife_cd <= 0.0:
 		_throw(false)
 	if Input.is_action_just_pressed("grenade") and grenade_cd <= 0.0 and grenades_left > 0:
 		_throw(true)
@@ -93,6 +97,8 @@ func _update_throwables(delta: float) -> void:
 func _throw(grenade: bool) -> void:
 	var t = THROWABLE.new()
 	t.kind = 1 if grenade else 0
+	if not grenade and weapon:
+		t.damage = float(weapon.get_knife_damage())
 	var scene := get_tree().current_scene
 	scene.add_child(t)
 	var from := camera.global_position + camera.global_basis.x * 0.18 - camera.global_basis.z * 0.45

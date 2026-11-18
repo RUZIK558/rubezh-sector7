@@ -39,7 +39,7 @@ const CFG := [
 		"label": "НОЖ «КЛИН» // БОЕВОЙ", "mag": -1, "reserve": -1, "interval": 0.44,
 		"reload": 0.0, "damage": 65.0, "head": 1.6, "range": 20.0,
 		"spread_ads": 0.0, "spread_hip": 0.0, "recoil": 0.0, "yaw": 0.0,
-		"base": Vector3(0.10, -0.10, -0.50), "ads": Vector3(0.06, -0.08, -0.46),
+		"base": Vector3(0.10, -0.10, -0.50), "ads": Vector3(-0.01, -0.015, -0.42),
 		"scale": 1.4, "model_yaw": -90.0, "muzzle": Vector3.ZERO,
 		"auto": false, "melee": true, "shot": "knife_swing", "reload_sfx": "",
 		"mag_node": "", "slide_node": "", "melee_range": 2.4,
@@ -379,6 +379,9 @@ func reset_weapon() -> void:
 		slide_node.position = _slide_base
 	ammo_changed.emit(mag, reserve)
 
+
+func get_melee_damage() -> float:
+	return float(_cfg["damage"]) * damage_mult
 
 func apply_upgrade(id: String) -> void:
 	match id:

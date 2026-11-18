@@ -132,6 +132,11 @@ func reset_weapon() -> void:
 		w.reset_weapon()
 	_select(0)
 
+func get_knife_damage() -> float:
+	if weapons.size() > 2:
+		return float(weapons[2].get_melee_damage())
+	return 65.0
+
 func get_current_label() -> String:
 	return str(_cur().get("weapon_label"))
 

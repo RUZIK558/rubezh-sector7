@@ -62,11 +62,13 @@ func _physics_process(delta: float) -> void:
 		_despawn()
 
 func _on_body(body: Node) -> void:
-	if not _alive or kind == Kind.GRENADE:
+	if not _alive:
 		return
+	# Both projectiles stop on the first solid contact. Grenades keep their
+	# fuse and detonate from the resting position instead of falling through.
 	_stuck = true
 	velocity = Vector3.ZERO
-	FX.impact(global_position, Vector3.UP, false)
+	FX.impact(global_position, Vector3.UP, kind == Kind.GRENADE)
 
 func _on_area(area: Area3D) -> void:
 	if not _alive or kind != Kind.KNIFE:

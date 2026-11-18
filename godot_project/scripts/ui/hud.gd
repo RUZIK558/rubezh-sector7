@@ -274,7 +274,7 @@ func _build_notice() -> void:
 	_notice_label.modulate.a = 0.0
 	_notice_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_notice_label)
-	var hint := RubezhUI.label("WASD — ДВИЖЕНИЕ   ·   ЛКМ — ОГОНЬ   ·   ПКМ — ПРИЦЕЛ   ·   1–3 / КОЛЕСО — ОРУЖИЕ   ·   V — НОЖ   ·   G — ГРАНАТА   ·   R — ПЕРЕЗАРЯДКА   ·   ESC — ПАУЗА", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
+	var hint := RubezhUI.label("WASD — ДВИЖЕНИЕ   ·   ЛКМ — ОГОНЬ   ·   ПКМ — ПРИЦЕЛ / БРОСОК НОЖА   ·   1–3 / КОЛЕСО — ОРУЖИЕ   ·   V — БЫСТРЫЙ БРОСОК   ·   G — ГРАНАТА   ·   R — ПЕРЕЗАРЯДКА   ·   ESC — ПАУЗА", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
 	hint.anchor_left = 0.5
 	hint.anchor_right = 0.5
 	hint.anchor_top = 1.0

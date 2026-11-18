@@ -133,7 +133,7 @@ func _build_content() -> void:
 	start.grab_focus()
 
 func _build_footer() -> void:
-	_hint = RubezhUI.label("WASD — ДВИЖЕНИЕ    ЛКМ — ОГОНЬ    ПКМ — ПРИЦЕЛ    1–3 / КОЛЕСО — ОРУЖИЕ   ·   V — НОЖ   ·   G — ГРАНАТА    R — ПЕРЕЗАРЯДКА    ESC — ПАУЗА",
+	_hint = RubezhUI.label("WASD — ДВИЖЕНИЕ    ЛКМ — ОГОНЬ    ПКМ — ПРИЦЕЛ / БРОСОК НОЖА    1–3 / КОЛЕСО — ОРУЖИЕ   ·   V — БЫСТРЫЙ БРОСОК   ·   G — ГРАНАТА    R — ПЕРЕЗАРЯДКА    ESC — ПАУЗА",
 			11, RubezhUI.DIM, RubezhUI.FONT_MEDIUM)
 	_hint.anchor_left = 0.0
 	_hint.anchor_right = 1.0

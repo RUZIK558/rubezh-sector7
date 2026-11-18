@@ -37,6 +37,25 @@ func apply() -> void:
 	var bus := AudioServer.get_bus_index("Master")
 	AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(master_volume, 0.0001)))
 	AudioServer.set_bus_mute(bus, master_volume <= 0.001)
+	_apply_window_mode()
+
+func _apply_window_mode() -> void:
+	if OS.has_feature("editor"):
+		return
 	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 	if DisplayServer.window_get_mode() != mode:
-		DisplayServer.window_set_mode.call_deferred(mode)
+		DisplayServer.window_set_mode(mode)
+	# Force the correct geometry after the mode switch.
+	DisplayServer.window_set_size.call_deferred(_window_size())
+	DisplayServer.window_set_position.call_deferred(_window_position())
+
+func _window_size() -> Vector2i:
+	if fullscreen:
+		return Vector2i(DisplayServer.screen_get_size())
+	return Vector2i(1600, 900)
+
+func _window_position() -> Vector2i:
+	var screen := Vector2i(DisplayServer.screen_get_size())
+	if fullscreen:
+		return Vector2i.ZERO
+	return (screen - Vector2i(1600, 900)) / 2
