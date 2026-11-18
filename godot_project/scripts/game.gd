@@ -69,6 +69,8 @@ var _remote_enemies: Dictionary = {}
 var _remote_pickups: Dictionary = {}
 var _remote_projectiles: Dictionary = {}
 var _got_snapshot := false
+var _faced_partner := false
+var _debug_pos_timer := 0.0
 var ending := false
 
 var _alive: Array[Node] = []
@@ -150,6 +152,27 @@ func _process(delta: float) -> void:
 		menu_camera.global_position = Vector3(sin(_menu_angle) * r, 7.5 + sin(_menu_time * 0.33) * 0.4, cos(_menu_angle) * r)
 		menu_camera.look_at(Vector3(0.0, 1.35, 0.0))
 		return
+	var targs := OS.get_cmdline_args()
+	var ti := targs.find("--teleport")
+	if ti != -1 and targs.size() >= ti + 4 and player and state == State.PLAYING:
+		player.global_position = Vector3(float(targs[ti+1]), float(targs[ti+2]), float(targs[ti+3]))
+	if OS.get_cmdline_args().has("--hide-all") and player:
+		for c in player.camera.find_children("*", "Node3D", true, false):
+			c.visible = false
+		for p2 in _players:
+			var m := p2.get_node_or_null("OperativeModel")
+			if m:
+				m.visible = false
+	if OS.get_cmdline_args().has("--hide-hud"):
+		hud.visible = false
+	if OS.get_cmdline_args().has("--hide-weapon") and player and player.get_weapon():
+		player.get_weapon().visible = false
+	if OS.get_cmdline_args().has("--face-partner") and not _faced_partner and player and state == State.PLAYING:
+		_faced_partner = true
+		player.yaw = -PI / 2.0 if net_mode == 1 else PI / 2.0
+		for p in _players:
+			if p != player:
+				p.yaw = PI / 2.0 if net_mode == 1 else -PI / 2.0
 	if net_mode == 2 and Net.is_client:
 		var real_id := multiplayer.get_unique_id()
 		if real_id > 1 and real_id != Net.self_id:
@@ -157,6 +180,20 @@ func _process(delta: float) -> void:
 			if player:
 				player.peer_id = real_id
 				player.global_position = _spawn_pos_for(real_id)
+	if OS.get_cmdline_args().has("--debug-ray") and player:
+		_debug_pos_timer -= delta
+		if _debug_pos_timer <= 0.0:
+			_debug_pos_timer = 2.0
+			print("DEBUG RAY ", debug_ray())
+	if OS.get_cmdline_args().has("--debug-state") and player:
+		_debug_pos_timer -= delta
+		if _debug_pos_timer <= 0.0:
+			_debug_pos_timer = 2.0
+			var cam: Camera3D = player.camera
+			print("DEBUG state=", state, " me=", player.global_position, " cam=", cam.global_position, " rot=", cam.rotation, " pitch=", player.pitch, " net=", net_mode, " hubvis=", player.get_weapon().visible, " ray=", debug_ray(), " activecam=", (get_viewport().get_camera_3d().get_parent().name if get_viewport().get_camera_3d() else "NONE"), " campos=", (get_viewport().get_camera_3d().global_position if get_viewport().get_camera_3d() else Vector3.ZERO))
+			for p2 in _players:
+				if p2 != player:
+					print("DEBUG partner=", p2.peer_id, " pos=", p2.global_position, " remote=", p2.network_remote)
 	if net_mode == 1:
 		_net_sync_timer -= delta
 		if _net_sync_timer <= 0.0:
@@ -228,6 +265,8 @@ func start_game(mode: int = 0) -> void:
 		for id in Net.connected_peers():
 			if id != 1:
 				_spawn_player(id, _spawn_pos_for(id), true)
+	menu_camera.current = false
+	player.camera.current = true
 	player.health_changed.connect(hud.set_health)
 	player.damaged.connect(func(_amount: float, source: Vector3): hud.damage_from(source))
 	player.notice.connect(hud.notice)
@@ -331,10 +370,10 @@ func _on_settings_closed() -> void:
 
 func _spawn_pos_for(peer_id: int) -> Vector3:
 	var slots := [
-		Vector3(-2.6, 0.02, 12.0),
-		Vector3(2.6, 0.02, 12.0),
-		Vector3(0.0, 0.02, 9.0),
-		Vector3(0.0, 0.02, 15.0),
+		Vector3(-2.2, 0.02, 12.0),
+		Vector3(2.2, 0.02, 12.0),
+		Vector3(0.0, 0.02, 16.0),
+		Vector3(0.0, 0.02, 8.0),
 	]
 	if peer_id == 1:
 		return slots[0]
@@ -355,6 +394,7 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
+	p.camera.current = not remote
 	print("COOP: spawn peer=", peer_id, " remote=", remote, " pos=", p.global_position)
 	p.died.connect(func(): _on_player_died(p))
 	_players.append(p)
@@ -933,3 +973,19 @@ func rpc_pickup_taken(pid: int) -> void:
 		if is_instance_valid(pk) and int(pk.get("net_id")) == pid:
 			_free_now(pk)
 			return
+
+
+func debug_ray() -> Array:
+	if player == null:
+		return []
+	var cam: Camera3D = player.camera
+	var from := cam.global_position
+	var out := []
+	for d in [Vector3.FORWARD, Vector3.DOWN, Vector3.LEFT, Vector3.RIGHT]:
+		var q := PhysicsRayQueryParameters3D.create(from, from + d * 12.0, 1 | 8)
+		var r := get_world_3d().direct_space_state.intersect_ray(q)
+		if r.is_empty():
+			out.append("none")
+		else:
+			out.append(str(r.collider.get_parent().name) + "/" + str(r.collider.name) + "@" + str(snappedf(r.distance, 0.2)) + " pos=" + str(r.collider.global_position))
+	return out
