@@ -156,6 +156,7 @@ func _process(delta: float) -> void:
 			Net.self_id = real_id
 			if player:
 				player.peer_id = real_id
+				player.global_position = _spawn_pos_for(real_id)
 	if net_mode == 1:
 		_net_sync_timer -= delta
 		if _net_sync_timer <= 0.0:
@@ -222,11 +223,11 @@ func start_game(mode: int = 0) -> void:
 	settings_panel.visible = false
 	hud.visible = true
 	_players.clear()
-	player = _spawn_player(Net.self_id if net_mode == 2 else 1, Vector3(0, 0.02, 12.0), false)
+	player = _spawn_player(Net.self_id if net_mode == 2 else 1, _spawn_pos_for(Net.self_id if net_mode == 2 else 1), false)
 	if net_mode == 1:
 		for id in Net.connected_peers():
 			if id != 1:
-				_spawn_player(id, Vector3(3.0, 0.02, 12.0), true)
+				_spawn_player(id, _spawn_pos_for(id), true)
 	player.health_changed.connect(hud.set_health)
 	player.damaged.connect(func(_amount: float, source: Vector3): hud.damage_from(source))
 	player.notice.connect(hud.notice)
@@ -328,6 +329,17 @@ func _on_settings_closed() -> void:
 	elif state == State.MENU:
 		main_menu.first_button().grab_focus()
 
+func _spawn_pos_for(peer_id: int) -> Vector3:
+	var slots := [
+		Vector3(-2.6, 0.02, 12.0),
+		Vector3(2.6, 0.02, 12.0),
+		Vector3(0.0, 0.02, 9.0),
+		Vector3(0.0, 0.02, 15.0),
+	]
+	if peer_id == 1:
+		return slots[0]
+	return slots[1 + (abs(peer_id) % 3)]
+
 func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 	var p = PLAYER.instantiate()
 	p.name = "Player_%d" % peer_id
@@ -343,6 +355,7 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
+	print("COOP: spawn peer=", peer_id, " remote=", remote, " pos=", p.global_position)
 	p.died.connect(func(): _on_player_died(p))
 	_players.append(p)
 	return p
@@ -366,7 +379,7 @@ func _on_net_peer_joined(id: int) -> void:
 	print("COOP: peer joined ", id, " mode=", net_mode)
 	if net_mode == 1 and state != State.MENU:
 		if not _find_player(id):
-			_spawn_player(id, Vector3(3.0, 0.02, 12.0), true)
+			_spawn_player(id, _spawn_pos_for(id), true)
 		main_menu.set_net_status("ИГРОК %d ПОДКЛЮЧИЛСЯ" % id)
 
 func _find_player(peer_id: int) -> Node:
@@ -405,7 +418,7 @@ func _start_wave(index: int) -> void:
 		if not is_instance_valid(p):
 			continue
 		if p.dead:
-			p.reset_player(Vector3(randf_range(-2.0, 2.0), 0.02, 12.0), 0.0)
+			p.reset_player(_spawn_pos_for(int(p.peer_id)), 0.0)
 			p.health = maxf(1.0, p.max_health * 0.6)
 			p.health_changed.emit(p.health, p.max_health)
 			if net_mode == 1 and int(p.peer_id) != 1:
@@ -752,7 +765,7 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array,
 		seen.append(id)
 		var target := _find_player(id)
 		if target == null:
-			target = _spawn_player(id, Vector3(float(entry[1]), float(entry[2]), float(entry[3])), id != Net.self_id)
+			target = _spawn_player(id, _spawn_pos_for(id), id != Net.self_id)
 		var pos := Vector3(float(entry[1]), float(entry[2]), float(entry[3]))
 		if id == Net.self_id:
 			target.global_position = target.global_position.lerp(pos, 0.4)
@@ -877,7 +890,7 @@ func rpc_revive(peer_id: int) -> void:
 		return
 	var p := _find_player(peer_id)
 	if p:
-		p.reset_player(Vector3(0, 0.02, 12.0), 0.0)
+		p.reset_player(_spawn_pos_for(peer_id), 0.0)
 		p.health = p.max_health * 0.6
 		p.health_changed.emit(p.health, p.max_health)
 
