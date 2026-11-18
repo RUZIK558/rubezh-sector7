@@ -5,6 +5,7 @@ const PLAYER := preload("res://scenes/player.tscn")
 const ENEMY := preload("res://scenes/enemy.tscn")
 const PICKUP := preload("res://scenes/pickup.tscn")
 const SUPPLY_POD := preload("res://assets/models/supply_pod.glb")
+const OPERATIVE := preload("res://assets/models/operative.glb")
 const HUD_SCRIPT := preload("res://scripts/ui/hud.gd")
 const MAIN_MENU := preload("res://scripts/ui/main_menu.gd")
 const PAUSE_MENU := preload("res://scripts/ui/pause_menu.gd")
@@ -156,6 +157,12 @@ func _process(delta: float) -> void:
 		if combo_timer <= 0.0:
 			combo = 1.0
 			hud.set_score(score, combo)
+	if net_mode == 2 and Net.is_client:
+		var real_id := multiplayer.get_unique_id()
+		if real_id > 1 and real_id != Net.self_id:
+			Net.self_id = real_id
+			if player:
+				player.peer_id = real_id
 	if net_mode == 1:
 		_net_sync_timer -= delta
 		if _net_sync_timer <= 0.0:
@@ -323,6 +330,13 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 	add_child(p)
 	p.peer_id = peer_id
 	p.network_remote = remote
+	if remote:
+		print("COOP: operative model added for ", peer_id)
+		var body := OPERATIVE.instantiate()
+		body.name = "OperativeModel"
+		p.add_child(body)
+		for mi in body.find_children("*", "MeshInstance3D", true, false):
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
 	p.died.connect(_on_player_died)
@@ -708,12 +722,7 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, meta: Array) -> void
 		return
 	if not _got_snapshot:
 		_got_snapshot = true
-		for entry in players_data:
-			if int(entry[0]) != 1:
-				Net.self_id = int(entry[0])
-				if player:
-					player.peer_id = Net.self_id
-		print("COOP: first snapshot players=", players_data.size(), " enemies=", enemies_data.size())
+		print("COOP: first snapshot self=", Net.self_id, " player_peer=", (player.peer_id if player else -1), " players=", players_data.size(), " enemies=", enemies_data.size())
 	# players
 	var seen: Array[int] = []
 	for entry in players_data:
@@ -812,5 +821,3 @@ func rpc_buy(id: String) -> void:
 func rpc_continue() -> void:
 	if Net.is_host and state == State.SHOP:
 		_start_next_wave()
-
-

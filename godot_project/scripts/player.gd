@@ -35,6 +35,7 @@ var peer_id := 1
 var network_remote := false
 var remote_input: Dictionary = {}
 var net_look := Vector2.ZERO
+var _remote_anim_t := 0.0
 var grenades_left := 2
 var knife_cd := 0.0
 var grenade_cd := 0.0
@@ -78,6 +79,7 @@ func _physics_process(delta: float) -> void:
 	_time_since_damage += delta
 	invuln = maxf(0.0, invuln - delta)
 	_update_throwables(delta)
+	_animate_remote_model(delta)
 	_update_camera(delta)
 	if dead:
 		velocity.y -= GRAVITY * delta
@@ -330,6 +332,29 @@ func set_remote_input(data: Array) -> void:
 	if data.size() >= 14:
 		apply_look_delta(float(data[12]), float(data[13]))
 	remote_input = next_input
+
+func _animate_remote_model(delta: float) -> void:
+	if not network_remote:
+		return
+	var model := get_node_or_null("OperativeModel")
+	if model == null:
+		return
+	var speed := Vector2(velocity.x, velocity.z).length()
+	var amp := clampf(speed / 5.6, 0.0, 1.0)
+	_remote_anim_t += delta * (4.0 + speed * 1.4)
+	var swing := sin(_remote_anim_t) * amp
+	var thigh_l: Node3D = model.find_child("ThighL", true, false)
+	var thigh_r: Node3D = model.find_child("ThighR", true, false)
+	var arm_l: Node3D = model.find_child("ArmL", true, false)
+	var arm_r: Node3D = model.find_child("ArmR", true, false)
+	if thigh_l:
+		thigh_l.rotation.x = swing * 0.55
+	if thigh_r:
+		thigh_r.rotation.x = -swing * 0.55
+	if arm_l:
+		arm_l.rotation.x = -swing * 0.25
+	if arm_r:
+		arm_r.rotation.x = swing * 0.25
 
 func pressed(action: String) -> bool:
 	if network_remote:

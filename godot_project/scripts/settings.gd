@@ -126,7 +126,7 @@ func apply_bindings() -> void:
 			ev = mb
 		else:
 			var kb := InputEventKey.new()
-			kb.physical_keycode = int(b["code"])
+			kb.set("physical_keycode", int(b["code"]))
 			ev = kb
 		InputMap.action_add_event(action, ev)
 
