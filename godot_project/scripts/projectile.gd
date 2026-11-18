@@ -8,6 +8,9 @@ var damage := 10.0
 var speed := 22.0
 var life := 5.0
 var scale_visual := 1.0
+var net_id := 0
+var network_remote := false
+var target_pos := Vector3.ZERO
 var _alive := true
 var _orb_mat: StandardMaterial3D
 var _core: MeshInstance3D
@@ -15,7 +18,7 @@ var _core: MeshInstance3D
 func _ready() -> void:
 	add_to_group("projectiles")
 	collision_layer = 16
-	collision_mask = 1 | 2
+	collision_mask = 0 if network_remote else (1 | 2)
 	body_entered.connect(_on_body)
 	_build_visual()
 	life = 5.0
@@ -64,6 +67,11 @@ func _build_visual() -> void:
 func _physics_process(delta: float) -> void:
 	if not _alive:
 		return
+	if network_remote:
+		global_position = global_position.lerp(target_pos, 0.6)
+		if _core:
+			_core.scale = Vector3.ONE * (1.0 + sin(Time.get_ticks_msec() * 0.03) * 0.08)
+		return
 	global_position += direction * speed * delta
 	life -= delta
 	if _core:
@@ -74,7 +82,7 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 
 func _on_body(body: Node) -> void:
-	if not _alive:
+	if not _alive or network_remote:
 		return
 	_alive = false
 	if body.is_in_group("player") and body.has_method("take_damage"):

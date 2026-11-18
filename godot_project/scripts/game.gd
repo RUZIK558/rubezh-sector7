@@ -4,6 +4,7 @@ extends Node3D
 const PLAYER := preload("res://scenes/player.tscn")
 const ENEMY := preload("res://scenes/enemy.tscn")
 const PICKUP := preload("res://scenes/pickup.tscn")
+const PROJECTILE := preload("res://scenes/projectile.tscn")
 const SUPPLY_POD := preload("res://assets/models/supply_pod.glb")
 const OPERATIVE := preload("res://assets/models/operative.glb")
 const HUD_SCRIPT := preload("res://scripts/ui/hud.gd")
@@ -65,6 +66,8 @@ var _players: Array[Node] = []
 var _net_sync_timer := 0.0
 var _next_enemy_id := 1
 var _remote_enemies: Dictionary = {}
+var _remote_pickups: Dictionary = {}
+var _remote_projectiles: Dictionary = {}
 var _got_snapshot := false
 var ending := false
 
@@ -147,16 +150,6 @@ func _process(delta: float) -> void:
 		menu_camera.global_position = Vector3(sin(_menu_angle) * r, 7.5 + sin(_menu_time * 0.33) * 0.4, cos(_menu_angle) * r)
 		menu_camera.look_at(Vector3(0.0, 1.35, 0.0))
 		return
-	if state != State.PLAYING:
-		return
-	run_time += delta
-	if ending:
-		return
-	if combo_timer > 0.0:
-		combo_timer -= delta
-		if combo_timer <= 0.0:
-			combo = 1.0
-			hud.set_score(score, combo)
 	if net_mode == 2 and Net.is_client:
 		var real_id := multiplayer.get_unique_id()
 		if real_id > 1 and real_id != Net.self_id:
@@ -170,9 +163,19 @@ func _process(delta: float) -> void:
 			_net_sync_timer = 0.1
 	elif net_mode == 2:
 		_net_sync_timer -= delta
-		if _net_sync_timer <= 0.0:
+		if _net_sync_timer <= 0.0 and state == State.PLAYING:
 			_send_client_input()
 			_net_sync_timer = 0.066
+	if state != State.PLAYING:
+		return
+	run_time += delta
+	if ending:
+		return
+	if combo_timer > 0.0:
+		combo_timer -= delta
+		if combo_timer <= 0.0:
+			combo = 1.0
+			hud.set_score(score, combo)
 	_event_timer -= delta
 	if _event_timer <= 0.0 and net_mode != 2:
 		_trigger_event()
@@ -277,12 +280,13 @@ func _rebuild_arena() -> void:
 	add_child(a)
 	arena = a
 
-func _on_player_died() -> void:
+func _on_player_died(dead_player: Node = null) -> void:
 	if ending or net_mode == 2:
 		return
 	for p in _players:
 		if is_instance_valid(p) and not p.dead:
-			hud.show_banner("СОЮЗНИК ПОГИБ", "ВОЗРОЖДЕНИЕ В СЛЕДУЮЩЕЙ ВОЛНЕ", 2.4, RubezhUI.RED)
+			var title := "ВЫ ПОГИБЛИ" if dead_player == player else "СОЮЗНИК ПОГИБ"
+			hud.show_banner(title, "ВОЗРОЖДЕНИЕ В СЛЕДУЮЩЕЙ ВОЛНЕ", 2.4, RubezhUI.RED)
 			return
 	_end_run(false)
 
@@ -339,7 +343,7 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
-	p.died.connect(_on_player_died)
+	p.died.connect(func(): _on_player_died(p))
 	_players.append(p)
 	return p
 
@@ -635,6 +639,8 @@ func _maybe_drop(pos: Vector3) -> void:
 	if roll > 0.58:
 		return
 	var p = PICKUP.instantiate()
+	if Net.is_host:
+		p.net_id = Net.alloc_id()
 	p.kind = "ammo" if roll > 0.18 else "med"
 	add_child(p)
 	p.global_position = pos + Vector3(randf_range(-0.5, 0.5), 0.05, randf_range(-0.5, 0.5))
@@ -668,6 +674,10 @@ func _end_run(victory: bool) -> void:
 		"wave_total": wave_count,
 		"time": run_time,
 	}
+	if net_mode == 1:
+		var net_data := [score, kills, headshots, 0.0 if weapon == null or weapon.shots == 0 else float(weapon.hits) / float(weapon.shots),
+			wave_index + 1, wave_count, run_time]
+		rpc("rpc_finish", victory, net_data)
 	await get_tree().create_timer(1.9).timeout
 	if state == State.RESULTS:
 		hud.visible = false
@@ -714,15 +724,27 @@ func _broadcast_snapshot() -> void:
 			continue
 		enemies_data.append([int(e.net_id), int(e.enemy_type), e.global_position.x, e.global_position.y,
 			e.global_position.z, e.rotation.y, e.hp, e.elite])
-	rpc("rpc_snapshot", players_data, enemies_data, [wave_index, score, credits, int(state), wave_count])
+	var pickups_data := []
+	for pk in get_tree().get_nodes_in_group("pickups"):
+		if is_instance_valid(pk) and int(pk.get("net_id")) > 0:
+			pickups_data.append([int(pk.get("net_id")), str(pk.get("kind")),
+				pk.global_position.x, pk.global_position.y, pk.global_position.z])
+	var projectiles_data := []
+	for pr in get_tree().get_nodes_in_group("projectiles"):
+		if is_instance_valid(pr) and int(pr.get("net_id")) > 0:
+			projectiles_data.append([int(pr.get("net_id")),
+				pr.global_position.x, pr.global_position.y, pr.global_position.z,
+				pr.direction.x, pr.direction.y, pr.direction.z, pr.scale_visual])
+	rpc("rpc_snapshot", players_data, enemies_data, pickups_data, projectiles_data,
+		[wave_index, score, credits, int(state), wave_count])
 
 @rpc("authority", "call_remote", "unreliable")
-func rpc_snapshot(players_data: Array, enemies_data: Array, meta: Array) -> void:
+func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array, projectiles_data: Array, meta: Array) -> void:
 	if not Net.is_client:
 		return
 	if not _got_snapshot:
 		_got_snapshot = true
-		print("COOP: first snapshot self=", Net.self_id, " player_peer=", (player.peer_id if player else -1), " players=", players_data.size(), " enemies=", enemies_data.size())
+		print("COOP: first snapshot players=", players_data.size(), " enemies=", enemies_data.size(), " pickups=", pickups_data.size(), " projectiles=", projectiles_data.size())
 	# players
 	var seen: Array[int] = []
 	for entry in players_data:
@@ -768,6 +790,47 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, meta: Array) -> void
 			if is_instance_valid(node):
 				_free_now(node)
 			_remote_enemies.erase(eid)
+	# pickups
+	var pickup_seen: Array[int] = []
+	for entry in pickups_data:
+		var pid := int(entry[0])
+		pickup_seen.append(pid)
+		var node: Node = _remote_pickups.get(pid)
+		if not is_instance_valid(node):
+			node = PICKUP.instantiate()
+			node.kind = str(entry[1])
+			node.network_remote = true
+			node.net_id = pid
+			add_child(node)
+			_remote_pickups[pid] = node
+		node.global_position = Vector3(float(entry[2]), float(entry[3]), float(entry[4]))
+	for pid in _remote_pickups.keys():
+		if int(pid) not in pickup_seen:
+			var node: Node = _remote_pickups[pid]
+			if is_instance_valid(node):
+				_free_now(node)
+			_remote_pickups.erase(pid)
+	# projectiles
+	var proj_seen: Array[int] = []
+	for entry in projectiles_data:
+		var qid := int(entry[0])
+		proj_seen.append(qid)
+		var node: Node = _remote_projectiles.get(qid)
+		if not is_instance_valid(node):
+			node = PROJECTILE.instantiate()
+			node.network_remote = true
+			node.net_id = qid
+			node.scale_visual = float(entry[7])
+			add_child(node)
+			_remote_projectiles[qid] = node
+		node.target_pos = Vector3(float(entry[1]), float(entry[2]), float(entry[3]))
+		node.direction = Vector3(float(entry[4]), float(entry[5]), float(entry[6]))
+	for qid in _remote_projectiles.keys():
+		if int(qid) not in proj_seen:
+			var node: Node = _remote_projectiles[qid]
+			if is_instance_valid(node):
+				_free_now(node)
+			_remote_projectiles.erase(qid)
 	# meta
 	if meta.size() >= 5:
 		wave_index = int(meta[0])
@@ -777,9 +840,16 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, meta: Array) -> void
 		wave_count = int(meta[4])
 		hud.set_score(score, 1.0)
 		if remote_state == 4 and not shop_panel.visible:
+			state = State.SHOP
+			if player:
+				player.set_active(false)
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			shop_panel.open(wave_index + 2, credits)
 		elif remote_state != 4 and shop_panel.visible:
 			shop_panel.hide_panel()
+			state = State.PLAYING
+			if player:
+				player.set_active(true)
 
 @rpc("authority", "call_remote", "reliable")
 func rpc_player_health(peer_id: int, hp: float) -> void:
@@ -821,3 +891,32 @@ func rpc_buy(id: String) -> void:
 func rpc_continue() -> void:
 	if Net.is_host and state == State.SHOP:
 		_start_next_wave()
+
+
+@rpc("authority", "call_remote", "reliable")
+func rpc_finish(victory: bool, data: Array) -> void:
+	if not Net.is_client:
+		return
+	ending = true
+	state = State.RESULTS
+	if player:
+		player.set_active(false)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	shop_panel.hide_panel()
+	hud.visible = false
+	var stats := {
+		"score": int(data[0]), "kills": int(data[1]), "headshots": int(data[2]),
+		"accuracy": float(data[3]), "wave": int(data[4]), "wave_total": int(data[5]),
+		"time": float(data[6]),
+	}
+	results_screen.show_results(stats, victory)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_pickup_taken(pid: int) -> void:
+	if not Net.is_host:
+		return
+	for pk in get_tree().get_nodes_in_group("pickups"):
+		if is_instance_valid(pk) and int(pk.get("net_id")) == pid:
+			_free_now(pk)
+			return

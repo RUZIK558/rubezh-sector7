@@ -5,6 +5,8 @@ const AMMO := preload("res://assets/models/pickup_ammo.glb")
 const MED := preload("res://assets/models/pickup_med.glb")
 
 @export_enum("ammo", "med") var kind := "ammo"
+var net_id := 0
+var network_remote := false
 
 var _base_y := 0.0
 var _t := 0.0
@@ -62,6 +64,8 @@ func _on_body(body: Node) -> void:
 	if _taken or not body.is_in_group("player"):
 		return
 	_taken = true
+	if network_remote and Net.is_client and net_id > 0:
+		get_tree().current_scene.rpc_id(1, "rpc_pickup_taken", net_id)
 	if kind == "ammo":
 		body.add_ammo(60)
 		body.add_grenades(1)

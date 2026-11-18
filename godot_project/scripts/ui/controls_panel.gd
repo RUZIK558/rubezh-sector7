@@ -8,6 +8,7 @@ var _panel: PanelContainer
 var _rows: Dictionary = {}
 var _rebind_hint: Label
 var _rebinding := ""
+var _rebind_guard := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -113,11 +114,16 @@ func _action_name(action: String) -> String:
 
 func _begin_rebind(action: String) -> void:
 	_rebinding = action
+	_rebind_guard = true
+	call_deferred("_clear_rebind_guard")
 	_rebind_hint.text = "ОЖИДАНИЕ КЛАВИШИ: %s  ·  ESC — ОТМЕНА" % _action_name(action)
 	_rebind_hint.add_theme_color_override("font_color", RubezhUI.AMBER)
 
+func _clear_rebind_guard() -> void:
+	_rebind_guard = false
+
 func _input(event: InputEvent) -> void:
-	if _rebinding == "" or not visible:
+	if _rebinding == "" or not visible or _rebind_guard:
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		_cancel_rebind()

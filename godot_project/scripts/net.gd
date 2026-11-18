@@ -13,6 +13,11 @@ var is_host := false
 var is_client := false
 var self_id := 1
 var room_ip := "127.0.0.1"
+var _id_counter := 1000
+
+func alloc_id() -> int:
+	_id_counter += 1
+	return _id_counter
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS

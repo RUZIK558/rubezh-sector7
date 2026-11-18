@@ -379,6 +379,8 @@ func _fire_volley() -> void:
 		dir = dir.rotated(Vector3.UP, randf_range(-0.025, 0.025))
 		dir = dir.rotated(Vector3.RIGHT, randf_range(-0.018, 0.018))
 		var p = PROJECTILE.instantiate()
+		if Net.is_host:
+			p.net_id = Net.alloc_id()
 		p.direction = dir
 		p.damage = damage
 		p.speed = projectile_speed

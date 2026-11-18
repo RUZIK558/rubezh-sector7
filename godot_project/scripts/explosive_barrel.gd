@@ -25,9 +25,10 @@ func explode() -> void:
 		if d < 5.5:
 			var dmg := lerpf(95.0, 25.0, clampf(d / 5.5, 0.0, 1.0))
 			e.take_hit(dmg, false, (e.global_position - global_position).normalized(), e.global_position + Vector3.UP)
-	# player
-	var p = get_tree().get_first_node_in_group("player")
-	if p and is_instance_valid(p) and p.has_method("take_damage"):
+	# all players (co-op)
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p) or not p.has_method("take_damage"):
+			continue
 		var pd: float = p.global_position.distance_to(global_position)
 		if pd < 5.5:
 			p.take_damage(lerpf(85.0, 15.0, clampf(pd / 5.5, 0.0, 1.0)), global_position)
