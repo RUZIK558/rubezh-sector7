@@ -130,7 +130,7 @@ func _process(delta: float) -> void:
 	_kick = lerpf(_kick, 0.0, delta * 12.0)
 	_sway = _sway.lerp(Vector2.ZERO, clampf(delta * 8.0, 0, 1))
 	_bob += delta
-	var want_ads := Input.is_action_pressed("aim") and not reloading
+	var want_ads: bool = (player.pressed("aim") if player else false) and not reloading
 	ads = want_ads
 	ads_amount = move_toward(ads_amount, 1.0 if ads else 0.0, delta * 7.0)
 	var base := _base_pos.lerp(_ads_pos, ads_amount)
@@ -150,12 +150,12 @@ func _process(delta: float) -> void:
 		_update_reload(delta)
 	var wants_fire := false
 	if bool(_cfg["auto"]):
-		wants_fire = Input.is_action_pressed("fire")
+		wants_fire = player.pressed("fire")
 	else:
-		wants_fire = Input.is_action_just_pressed("fire")
+		wants_fire = player.just_pressed("fire")
 	if wants_fire and _cooldown <= 0.0:
 		try_fire()
-	if Input.is_action_just_pressed("reload") and not is_melee:
+	if player and player.just_pressed("reload") and not is_melee:
 		start_reload()
 
 func _update_reload(delta: float) -> void:
@@ -186,7 +186,7 @@ func try_fire() -> void:
 	AudioManager.play(str(_cfg["shot"]), -1.0, randf_range(0.96, 1.035))
 	_slide_kick()
 	var spread_deg := (float(_cfg["spread_ads"]) if ads_amount > 0.6 else float(_cfg["spread_hip"])) * spread_mult
-	var is_crouch: bool = player != null and Input.is_action_pressed("crouch")
+	var is_crouch: bool = player != null and player.pressed("crouch")
 	if is_crouch:
 		spread_deg *= 0.65
 	if player:

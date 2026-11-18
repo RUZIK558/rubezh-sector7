@@ -17,6 +17,8 @@ const GLOW := preload("res://assets/textures/fx_glow.png")
 @export var wave: int = 1
 @export var tier: int = 1
 @export var elite: bool = false
+var net_id := 0
+var network_remote := false
 
 var max_hp := 70.0
 var hp := 70.0
@@ -63,7 +65,7 @@ var _muzzle_index := 0
 
 func _ready() -> void:
 	add_to_group("enemies")
-	player = get_tree().get_first_node_in_group("player")
+	player = _pick_player()
 	hitboxes = $Hitboxes
 	_apply_stats()
 	_build_model()
@@ -75,6 +77,18 @@ func _ready() -> void:
 	var final_scale := _base_scale * (1.12 if elite else 1.0)
 	tw.tween_property(model_root, "scale", Vector3.ONE * final_scale, 0.55).from(Vector3.ONE * _base_scale * 0.05).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	health_changed.emit(hp, max_hp)
+
+func _pick_player() -> Node3D:
+	var best: Node3D = null
+	var best_dist := 1e9
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p) or p.dead:
+			continue
+		var d: float = global_position.distance_squared_to(p.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = p
+	return best
 
 func _apply_stats() -> void:
 	match enemy_type:
@@ -217,9 +231,15 @@ func _eye_height() -> float:
 	return 1.62 if enemy_type == Type.SCOUT else 1.92
 
 func _physics_process(delta: float) -> void:
+	if network_remote:
+		_time += delta
+		_animate(delta, Vector2(velocity.x, velocity.z).length())
+		return
 	if dying:
 		return
 	_time += delta
+	if int(_time * 2.0) % 4 == 0 and player != null and player.dead:
+		player = _pick_player()
 	if spawn_timer > 0.0:
 		spawn_timer -= delta
 		velocity.y -= 16.0 * delta
@@ -342,6 +362,8 @@ func _release_attack() -> void:
 		eye_light.light_energy = 0.8
 
 func _fire_volley() -> void:
+	if network_remote:
+		return
 	if player == null or not is_instance_valid(player):
 		return
 	var target: Vector3 = player.global_position + Vector3(0, 1.15, 0) + player.velocity * 0.12

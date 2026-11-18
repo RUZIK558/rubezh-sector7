@@ -61,7 +61,7 @@ func _physics_process(delta: float) -> void:
 	elif _time >= 5.0:
 		_despawn()
 
-func _on_body(body: Node) -> void:
+func _on_body(_body: Node) -> void:
 	if not _alive:
 		return
 	# Both projectiles stop on the first solid contact. Grenades keep their

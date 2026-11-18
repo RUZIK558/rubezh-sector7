@@ -31,6 +31,10 @@ var trauma := 0.0
 var _shake_time := 0.0
 var _time_since_damage := 99.0
 var invuln := 0.0
+var peer_id := 1
+var network_remote := false
+var remote_input: Dictionary = {}
+var net_look := Vector2.ZERO
 var grenades_left := 2
 var knife_cd := 0.0
 var grenade_cd := 0.0
@@ -56,13 +60,14 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or dead:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if not network_remote and event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := 0.0023 * Settings.mouse_sensitivity
 		var ads_mul := 1.0
 		if weapon:
 			ads_mul = 1.0 - weapon.ads_amount * 0.35
 		yaw -= event.relative.x * sens * ads_mul
 		pitch -= event.relative.y * sens * ads_mul
+		net_look += event.relative
 		pitch = clampf(pitch, -1.45, 1.45)
 		if weapon:
 			weapon.add_look(event.relative)
@@ -87,11 +92,11 @@ func _update_throwables(delta: float) -> void:
 		return
 	var knife_equipped: bool = weapon != null and weapon.is_melee
 	# Quick throw on V, or aim with RMB and release to throw.
-	if Input.is_action_just_pressed("throw_knife") and knife_cd <= 0.0:
+	if just_pressed("throw_knife") and knife_cd <= 0.0:
 		_throw(false)
-	if knife_equipped and Input.is_action_just_released("aim") and knife_cd <= 0.0:
+	if knife_equipped and just_released("aim") and knife_cd <= 0.0:
 		_throw(false)
-	if Input.is_action_just_pressed("grenade") and grenade_cd <= 0.0 and grenades_left > 0:
+	if just_pressed("grenade") and grenade_cd <= 0.0 and grenades_left > 0:
 		_throw(true)
 
 func _throw(grenade: bool) -> void:
@@ -139,22 +144,22 @@ func _movement(delta: float) -> void:
 	_was_on_floor = on_floor
 	_fall_speed = velocity.y
 
-	var crouching := Input.is_action_pressed("crouch") and on_floor
+	var crouching := pressed("crouch") and on_floor
 	var aiming: bool = weapon != null and weapon.ads_amount > 0.5
-	var sprinting := Input.is_action_pressed("sprint") and not crouching and not aiming and _mv_input.y < -0.2
+	var sprinting := pressed("sprint") and not crouching and not aiming and _mv_input.y < -0.2
 	var speed := WALK_SPEED
 	if crouching:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
 
-	_mv_input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	_mv_input = move_vector()
 	var dir := Vector3(_mv_input.x, 0, _mv_input.y).rotated(Vector3.UP, yaw)
 	var accel := 34.0 if on_floor else 10.0
 	velocity.x = move_toward(velocity.x, dir.x * speed, accel * delta)
 	velocity.z = move_toward(velocity.z, dir.z * speed, accel * delta)
 
-	if Input.is_action_just_pressed("jump") and (on_floor or _coyote > 0.0):
+	if just_pressed("jump") and (on_floor or _coyote > 0.0):
 		velocity.y = JUMP_VELOCITY
 		_coyote = 0.0
 		AudioManager.play("jump", -8.0)
@@ -202,7 +207,7 @@ func _update_camera(delta: float) -> void:
 		_bob_amount = lerpf(_bob_amount, 0.0, delta * 6.0)
 	var bob_y := sin(_bob_time * 2.0) * _bob_amount
 	var bob_x := sin(_bob_time) * _bob_amount * 0.6
-	_crouch_mix = lerpf(_crouch_mix, 1.0 if Input.is_action_pressed("crouch") else 0.0, delta * 9.0)
+	_crouch_mix = lerpf(_crouch_mix, 1.0 if pressed("crouch") else 0.0, delta * 9.0)
 	var stand := lerpf(1.62, 1.08, _crouch_mix)
 	head.position.y = stand + bob_y + _land_offset
 	head.position.x = bob_x
@@ -241,6 +246,7 @@ func take_damage(amount: float, source := Vector3.ZERO) -> void:
 	health = maxf(0.0, health - amount)
 	_time_since_damage = 0.0
 	health_changed.emit(health, max_health)
+	report_health()
 	damaged.emit(amount, source)
 	AudioManager.play("hurt", -4.0, randf_range(0.94, 1.06))
 	add_trauma(clampf(amount / 45.0, 0.18, 0.75))
@@ -254,7 +260,8 @@ func _die() -> void:
 	active = false
 	if weapon:
 		weapon.set_enabled(false)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if not network_remote:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(head, "position:y", 0.55, 1.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(camera, "rotation:z", deg_to_rad(24.0), 1.1)
@@ -265,6 +272,7 @@ func heal(amount: float) -> void:
 		return
 	health = minf(max_health, health + amount)
 	health_changed.emit(health, max_health)
+	report_health()
 	notice.emit("+%d ЗДОРОВЬЯ" % int(amount))
 
 func add_ammo(amount: int) -> void:
@@ -298,11 +306,61 @@ func set_active(value: bool) -> void:
 	active = value
 	if value:
 		dead = false
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if not network_remote:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if not network_remote:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if weapon:
 		weapon.set_enabled(value)
+
+func set_remote_input(data: Array) -> void:
+	if data.size() < 12:
+		return
+	var keys := ["fire", "aim", "reload", "jump", "crouch", "sprint", "throw_knife", "grenade",
+		"move_forward", "move_back", "move_left", "move_right"]
+	var next_input: Dictionary = {}
+	for i in keys.size():
+		next_input[keys[i]] = bool(data[i])
+	for action in ["fire", "aim", "reload", "jump", "throw_knife", "grenade"]:
+		var now := bool(next_input.get(action, false))
+		var was := bool(remote_input.get(action, false))
+		next_input[action + "_just"] = now and not was
+		next_input[action + "_released"] = not now and was
+	if data.size() >= 14:
+		apply_look_delta(float(data[12]), float(data[13]))
+	remote_input = next_input
+
+func pressed(action: String) -> bool:
+	if network_remote:
+		return bool(remote_input.get(action, false))
+	return Input.is_action_pressed(action)
+
+func just_pressed(action: String) -> bool:
+	if network_remote:
+		return bool(remote_input.get(action + "_just", false))
+	return Input.is_action_just_pressed(action)
+
+func just_released(action: String) -> bool:
+	if network_remote:
+		return bool(remote_input.get(action + "_released", false))
+	return Input.is_action_just_released(action)
+
+func move_vector() -> Vector2:
+	if network_remote:
+		return Vector2(
+			float(remote_input.get("move_right", 0.0)) - float(remote_input.get("move_left", 0.0)),
+			float(remote_input.get("move_back", 0.0)) - float(remote_input.get("move_forward", 0.0)))
+	return Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+
+func apply_look_delta(delta_x: float, delta_y: float) -> void:
+	yaw -= delta_x * 0.0023
+	pitch -= delta_y * 0.0023
+	pitch = clampf(pitch, -1.45, 1.45)
+
+func report_health() -> void:
+	if network_remote and Net.is_host:
+		get_tree().current_scene.rpc_id(peer_id, "rpc_player_health", peer_id, health)
 
 func get_weapon():
 	return weapon

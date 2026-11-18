@@ -22,6 +22,7 @@ config/icon="res://icon.png"
 Settings="*res://scripts/settings.gd"
 AudioManager="*res://scripts/audio_manager.gd"
 FX="*res://scripts/fx.gd"
+Net="*res://scripts/net.gd"
 MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"
 
 [display]

@@ -4,12 +4,14 @@ extends Node3D
 const PLAYER := preload("res://scenes/player.tscn")
 const ENEMY := preload("res://scenes/enemy.tscn")
 const PICKUP := preload("res://scenes/pickup.tscn")
+const SUPPLY_POD := preload("res://assets/models/supply_pod.glb")
 const HUD_SCRIPT := preload("res://scripts/ui/hud.gd")
 const MAIN_MENU := preload("res://scripts/ui/main_menu.gd")
 const PAUSE_MENU := preload("res://scripts/ui/pause_menu.gd")
 const SETTINGS_PANEL := preload("res://scripts/ui/settings_panel.gd")
 const RESULTS_SCREEN := preload("res://scripts/ui/results_screen.gd")
 const SHOP_PANEL := preload("res://scripts/ui/shop_panel.gd")
+const CONTROLS_PANEL := preload("res://scripts/ui/controls_panel.gd")
 
 enum State { MENU, PLAYING, PAUSED, SETTINGS, SHOP, RESULTS }
 
@@ -22,14 +24,16 @@ const WAVE_NAMES := [
 const WAVE_COUNT := 20
 
 func _wave_def(index: int) -> Dictionary:
-	var i := clampi(index, 1, WAVE_COUNT)
-	var tier := (i - 1) / 5 + 1
+	var i := clampi(index, 1, wave_count)
+	var tier := mini(int(float(i - 1) / 5.0) + 1, 10)
 	var boss := i % 5 == 0
-	var name: String = WAVE_NAMES[i - 1]
+	var wave_name: String = WAVE_NAMES[(i - 1) % WAVE_NAMES.size()]
+	if i > WAVE_NAMES.size():
+		wave_name = "ВОЛНА %d // РЕЖИМ ОБОРОНЫ" % i
 	if boss:
-		return {"name": name, "scouts": 5 + tier * 2, "juggs": 2 + tier,
+		return {"name": wave_name, "scouts": 5 + tier * 2, "juggs": 2 + tier,
 			"boss": true, "tier": tier, "interval": maxf(0.5, 1.15 - float(i) * 0.025)}
-	return {"name": name, "scouts": mini(6 + i, 17), "juggs": mini(1 + i / 2, 7),
+	return {"name": wave_name, "scouts": mini(6 + i, 17), "juggs": mini(1 + int(i / 2.0), 7),
 		"boss": false, "tier": 1, "interval": maxf(0.48, 1.2 - float(i) * 0.035)}
 
 @onready var arena: Node3D = $Arena
@@ -44,6 +48,7 @@ var pause_menu = null
 var settings_panel = null
 var results_screen = null
 var shop_panel = null
+var controls_panel = null
 
 var score := 0
 var combo := 1.0
@@ -53,22 +58,37 @@ var headshots := 0
 var wave_index := -1
 var run_time := 0.0
 var credits := 0
+var net_mode := 0  # 0 solo, 1 host, 2 client
+var wave_count := 20
+var _players: Array[Node] = []
+var _net_sync_timer := 0.0
+var _next_enemy_id := 1
+var _remote_enemies: Dictionary = {}
+var _got_snapshot := false
 var ending := false
 
 var _alive: Array[Node] = []
 var _spawn_queue: Array[int] = []
 var _spawn_timer := 0.0
-var _intermission := 0.0
 var _menu_angle := 0.4
 var _menu_time := 0.0
 var _settings_return: State = State.MENU
 var _boss = null
+var _event_timer := 26.0
 
 func _ready() -> void:
 	($Moon as DirectionalLight3D).rotation_degrees = Vector3(-52.0, 38.0, 0.0)
 	_build_ui()
 	AudioManager.play_music("menu")
 	main_menu.enter()
+	var args := OS.get_cmdline_args()
+	var i := args.find("--host")
+	if i != -1:
+		call_deferred("_host_game")
+	else:
+		var j := args.find("--join")
+		if j != -1 and args.size() > j + 1:
+			call_deferred("_join_game", args[j + 1])
 	menu_camera.current = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -81,9 +101,11 @@ func _build_ui() -> void:
 	main_menu = MAIN_MENU.new()
 	main_menu.name = "MainMenu"
 	ui.add_child(main_menu)
-	main_menu.start_requested.connect(start_game)
+	main_menu.start_requested.connect(func(): start_game(0))
 	main_menu.settings_requested.connect(_open_settings_from_menu)
 	main_menu.quit_requested.connect(_quit_game)
+	main_menu.host_requested.connect(_host_game)
+	main_menu.join_requested.connect(_join_game)
 
 	pause_menu = PAUSE_MENU.new()
 	pause_menu.name = "PauseMenu"
@@ -98,6 +120,11 @@ func _build_ui() -> void:
 	settings_panel.name = "SettingsPanel"
 	ui.add_child(settings_panel)
 	settings_panel.closed.connect(_on_settings_closed)
+	settings_panel.controls_requested.connect(func(): controls_panel.open())
+
+	controls_panel = CONTROLS_PANEL.new()
+	controls_panel.name = "ControlsPanel"
+	ui.add_child(controls_panel)
 
 	results_screen = RESULTS_SCREEN.new()
 	results_screen.name = "ResultsScreen"
@@ -129,6 +156,20 @@ func _process(delta: float) -> void:
 		if combo_timer <= 0.0:
 			combo = 1.0
 			hud.set_score(score, combo)
+	if net_mode == 1:
+		_net_sync_timer -= delta
+		if _net_sync_timer <= 0.0:
+			_broadcast_snapshot()
+			_net_sync_timer = 0.1
+	elif net_mode == 2:
+		_net_sync_timer -= delta
+		if _net_sync_timer <= 0.0:
+			_send_client_input()
+			_net_sync_timer = 0.066
+	_event_timer -= delta
+	if _event_timer <= 0.0 and net_mode != 2:
+		_trigger_event()
+		_event_timer = randf_range(28.0, 46.0)
 	_spawn_timer -= delta
 	if _spawn_queue.size() > 0 and _spawn_timer <= 0.0:
 		_spawn_enemy(_spawn_queue.pop_front())
@@ -147,9 +188,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_resume_game()
 
 # ------------------------------------------------------------------ run control
-func start_game() -> void:
+func start_game(mode: int = 0) -> void:
 	if state == State.PLAYING:
 		return
+	net_mode = mode
+	wave_count = 100 if mode != 0 else 20
 	_cleanup_run()
 	_rebuild_arena()
 	score = 0
@@ -162,19 +205,20 @@ func start_game() -> void:
 	credits = 0
 	ending = false
 	main_menu.visible = false
+	main_menu.hide_net_panel()
 	results_screen.hide_screen()
 	shop_panel.hide_panel()
 	pause_menu.hide_menu()
 	settings_panel.visible = false
 	hud.visible = true
-	player = PLAYER.instantiate()
-	player.name = "Player"
-	add_child(player)
-	player.global_position = Vector3(0, 0.02, 12.0)
-	player.reset_player(player.global_position, 0.0)
+	_players.clear()
+	player = _spawn_player(Net.self_id if net_mode == 2 else 1, Vector3(0, 0.02, 12.0), false)
+	if net_mode == 1:
+		for id in Net.connected_peers():
+			if id != 1:
+				_spawn_player(id, Vector3(3.0, 0.02, 12.0), true)
 	player.health_changed.connect(hud.set_health)
 	player.damaged.connect(func(_amount: float, source: Vector3): hud.damage_from(source))
-	player.died.connect(_on_player_died)
 	player.notice.connect(hud.notice)
 	var weapon = player.get_weapon()
 	weapon.ammo_changed.connect(hud.set_ammo)
@@ -227,8 +271,12 @@ func _rebuild_arena() -> void:
 	arena = a
 
 func _on_player_died() -> void:
-	if ending:
+	if ending or net_mode == 2:
 		return
+	for p in _players:
+		if is_instance_valid(p) and not p.dead:
+			hud.show_banner("СОЮЗНИК ПОГИБ", "ВОЗРОЖДЕНИЕ В СЛЕДУЮЩЕЙ ВОЛНЕ", 2.4, RubezhUI.RED)
+			return
 	_end_run(false)
 
 func _pause_game() -> void:
@@ -269,6 +317,46 @@ func _on_settings_closed() -> void:
 	elif state == State.MENU:
 		main_menu.first_button().grab_focus()
 
+func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
+	var p = PLAYER.instantiate()
+	p.name = "Player_%d" % peer_id
+	add_child(p)
+	p.peer_id = peer_id
+	p.network_remote = remote
+	p.global_position = pos
+	p.reset_player(pos, 0.0)
+	p.died.connect(_on_player_died)
+	_players.append(p)
+	return p
+
+func _host_game() -> void:
+	var err := Net.host()
+	if err != OK:
+		main_menu.set_net_status("НЕ УДАЛОСЬ СОЗДАТЬ СЕРВЕР: %d" % err)
+		return
+	Net.peer_joined.connect(_on_net_peer_joined)
+	start_game(1)
+
+func _join_game(ip: String) -> void:
+	var err := Net.join(ip)
+	if err != OK:
+		main_menu.set_net_status("НЕ УДАЛОСЬ ПОДКЛЮЧИТЬСЯ: %d" % err)
+		return
+	start_game(2)
+
+func _on_net_peer_joined(id: int) -> void:
+	print("COOP: peer joined ", id, " mode=", net_mode)
+	if net_mode == 1 and state != State.MENU:
+		if not _find_player(id):
+			_spawn_player(id, Vector3(3.0, 0.02, 12.0), true)
+		main_menu.set_net_status("ИГРОК %d ПОДКЛЮЧИЛСЯ" % id)
+
+func _find_player(peer_id: int) -> Node:
+	for p in _players:
+		if is_instance_valid(p) and int(p.peer_id) == peer_id:
+			return p
+	return null
+
 func _quit_game() -> void:
 	Settings.save_settings()
 	get_tree().quit()
@@ -295,8 +383,17 @@ func _go_to_menu() -> void:
 # ------------------------------------------------------------------ waves
 func _start_wave(index: int) -> void:
 	wave_index = index - 1
-	if player and is_instance_valid(player):
-		player.ensure_min_health(0.45)
+	for p in _players:
+		if not is_instance_valid(p):
+			continue
+		if p.dead:
+			p.reset_player(Vector3(randf_range(-2.0, 2.0), 0.02, 12.0), 0.0)
+			p.health = maxf(1.0, p.max_health * 0.6)
+			p.health_changed.emit(p.health, p.max_health)
+			if net_mode == 1 and int(p.peer_id) != 1:
+				rpc_id(int(p.peer_id), "rpc_revive", int(p.peer_id))
+		else:
+			p.ensure_min_health(0.45)
 	var def: Dictionary = _wave_def(index)
 	_spawn_queue.clear()
 	for i in int(def["scouts"]):
@@ -307,11 +404,12 @@ func _start_wave(index: int) -> void:
 		_spawn_queue.append(2)
 	_spawn_queue.shuffle()
 	_spawn_timer = 0.9
-	hud.set_wave(index, WAVE_COUNT, str(def["name"]), _spawn_queue.size())
+	_event_timer = randf_range(22.0, 34.0)
+	hud.set_wave(index, wave_count, str(def["name"]), _spawn_queue.size())
 	var sub := "УНИЧТОЖЬТЕ ВСЕ ЦЕЛИ"
 	if bool(def["boss"]):
 		sub = "ОПАСНО // ШТУРМОВОЙ РОБОТ"
-	hud.show_banner("ВОЛНА %d / %d" % [index, WAVE_COUNT], str(def["name"]) + "  ·  " + sub, 2.4,
+	hud.show_banner("ВОЛНА %d / %d" % [index, wave_count], str(def["name"]) + "  ·  " + sub, 2.4,
 			RubezhUI.AMBER if not bool(def["boss"]) else RubezhUI.RED)
 	AudioManager.play("wave_start")
 	if bool(def["boss"]):
@@ -320,7 +418,7 @@ func _start_wave(index: int) -> void:
 		AudioManager.play_music("combat")
 
 func _wave_cleared() -> void:
-	if wave_index >= WAVE_COUNT - 1:
+	if wave_index >= wave_count - 1:
 		return
 	var next := wave_index + 2
 	credits += 50 + wave_index * 15
@@ -338,6 +436,9 @@ func _open_shop(next: int) -> void:
 	shop_panel.open(next, credits)
 
 func _on_buy(id: String) -> void:
+	if Net.is_client:
+		rpc_id(1, "rpc_buy", id)
+		return
 	var price := 0
 	for item in shop_panel.ITEMS:
 		if str(item["id"]) == id:
@@ -361,6 +462,9 @@ func _on_buy(id: String) -> void:
 	AudioManager.play("ui_click")
 
 func _start_next_wave() -> void:
+	if Net.is_client:
+		rpc_id(1, "rpc_continue")
+		return
 	if state != State.SHOP:
 		return
 	shop_panel.hide_panel()
@@ -368,6 +472,70 @@ func _start_next_wave() -> void:
 		player.set_active(true)
 	state = State.PLAYING
 	_start_wave(wave_index + 2)
+
+func _trigger_event() -> void:
+	if state != State.PLAYING or ending:
+		return
+	var roll := randi() % 3
+	print("EVENT: triggered ", roll)
+	match roll:
+		0: _event_supply_drop()
+		1: _event_artillery()
+		2: _event_reinforcement()
+
+func _event_supply_drop() -> void:
+	hud.show_banner("СБРОС ПРИПАСОВ", "ГУМАНИТАРНЫЙ КОНТЕЙНЕР ПРИЗЕМЛИЛСЯ", 2.4, RubezhUI.GREEN)
+	AudioManager.play("wave_clear")
+	var pos := Vector3(randf_range(-22.0, 22.0), 8.0, randf_range(-18.0, 18.0))
+	var pod = SUPPLY_POD.instantiate()
+	add_child(pod)
+	pod.global_position = pos
+	var tw := create_tween()
+	tw.tween_property(pod, "global_position:y", 0.05, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		if not is_instance_valid(pod):
+			return
+		var pp: Vector3 = pod.global_position
+		for i in 3:
+			var p = PICKUP.instantiate()
+			p.kind = "ammo" if i < 2 else "med"
+			add_child(p)
+			p.global_position = pp + Vector3(randf_range(-1.4, 1.4), 0.05, randf_range(-1.4, 1.4))
+		FX.spawn_burst(pp + Vector3.UP * 0.5, Color(0.3, 1.0, 0.5), 14)
+		AudioManager.play("pickup_ammo")
+		pod.queue_free())
+
+func _event_artillery() -> void:
+	hud.show_banner("АРТИЛЛЕРИЙСКИЙ УДАР", "ВНИМАНИЕ — ОПАСНАЯ ЗОНА", 2.2, RubezhUI.RED)
+	AudioManager.play("boss_roar", -6.0)
+	var targets: Array[Vector3] = []
+	for e in _alive:
+		if is_instance_valid(e) and targets.size() < 4:
+			targets.append(e.global_position)
+	while targets.size() < 2:
+		targets.append(Vector3(randf_range(-20.0, 20.0), 0, randf_range(-16.0, 16.0)))
+	for target in targets:
+		var pos := target
+		var timer := get_tree().create_timer(1.6)
+		timer.timeout.connect(func():
+			if state != State.PLAYING:
+				return
+			var origin := pos + Vector3.UP * 0.4
+			FX.explosion(origin, 1.3)
+			AudioManager.play_3d("explosion", origin, 0.0)
+			FX.shake(0.5)
+			for enemy in get_tree().get_nodes_in_group("enemies"):
+				if is_instance_valid(enemy) and enemy.has_method("take_hit"):
+					var d: float = enemy.global_position.distance_to(pos)
+					if d < 5.0:
+						enemy.take_hit(lerpf(110.0, 30.0, d / 5.0), false,
+							(enemy.global_position - pos).normalized(), enemy.global_position + Vector3.UP))
+
+func _event_reinforcement() -> void:
+	hud.show_banner("ПОДКРЕПЛЕНИЕ ВРАГА", "ЭЛИТНЫЕ БОЕВЫЕ МАШИНЫ", 2.2, RubezhUI.RED)
+	AudioManager.play("boss_roar", -8.0)
+	for i in 3:
+		_spawn_enemy(3)
 
 func _spawn_enemy(type: int) -> void:
 	if state != State.PLAYING or arena == null:
@@ -379,6 +547,9 @@ func _spawn_enemy(type: int) -> void:
 	var e = ENEMY.instantiate()
 	e.enemy_type = 2 if type == 2 else (1 if type >= 3 else type)
 	e.elite = type == 3
+	if net_mode == 1:
+		e.net_id = _next_enemy_id
+		_next_enemy_id += 1
 	e.wave = wave_index + 1
 	e.tier = int(_wave_def(wave_index + 1).get("tier", 1))
 	var pos: Vector3 = sp["pos"] + Vector3(randf_range(-0.7, 0.7), 0, randf_range(-0.7, 0.7))
@@ -425,7 +596,7 @@ func _on_enemy_died(_enemy: Node, points: int, headshot: bool) -> void:
 	combo_timer = 5.0
 	var gained := int(float(points) * combo)
 	score += gained
-	credits += maxi(4, points / 10)
+	credits += maxi(4, int(float(points) / 10.0))
 	hud.set_score(score, combo)
 	hud.kill_popup(gained, headshot)
 	_maybe_drop(_enemy.global_position)
@@ -480,10 +651,166 @@ func _end_run(victory: bool) -> void:
 		"headshots": headshots,
 		"accuracy": 0.0 if weapon == null or weapon.shots == 0 else float(weapon.hits) / float(weapon.shots),
 		"wave": wave_index + 1,
-		"wave_total": WAVE_COUNT,
+		"wave_total": wave_count,
 		"time": run_time,
 	}
 	await get_tree().create_timer(1.9).timeout
 	if state == State.RESULTS:
 		hud.visible = false
 		results_screen.show_results(data, victory)
+
+
+# ------------------------------------------------------------------ network
+func _send_client_input() -> void:
+	if not Net.is_client or player == null:
+		return
+	if multiplayer.multiplayer_peer == null or multiplayer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return
+	var data := [
+		Input.is_action_pressed("fire"), Input.is_action_pressed("aim"),
+		Input.is_action_pressed("reload"), Input.is_action_pressed("jump"),
+		Input.is_action_pressed("crouch"), Input.is_action_pressed("sprint"),
+		Input.is_action_pressed("throw_knife"), Input.is_action_pressed("grenade"),
+		Input.is_action_pressed("move_forward"), Input.is_action_pressed("move_back"),
+		Input.is_action_pressed("move_left"), Input.is_action_pressed("move_right"),
+		player.net_look.x, player.net_look.y,
+	]
+	player.net_look = Vector2.ZERO
+	rpc_id(1, "rpc_input", data)
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_input(data: Array) -> void:
+	if not Net.is_host or data.size() < 12:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	var p := _find_player(id)
+	if p:
+		p.set_remote_input(data)
+
+func _broadcast_snapshot() -> void:
+	var players_data := []
+	for p in _players:
+		if not is_instance_valid(p):
+			continue
+		players_data.append([int(p.peer_id), p.global_position.x, p.global_position.y, p.global_position.z,
+			p.yaw, p.pitch, p.health, p.dead])
+	var enemies_data := []
+	for e in _alive:
+		if not is_instance_valid(e) or int(e.net_id) <= 0:
+			continue
+		enemies_data.append([int(e.net_id), int(e.enemy_type), e.global_position.x, e.global_position.y,
+			e.global_position.z, e.rotation.y, e.hp, e.elite])
+	rpc("rpc_snapshot", players_data, enemies_data, [wave_index, score, credits, int(state), wave_count])
+
+@rpc("authority", "call_remote", "unreliable")
+func rpc_snapshot(players_data: Array, enemies_data: Array, meta: Array) -> void:
+	if not Net.is_client:
+		return
+	if not _got_snapshot:
+		_got_snapshot = true
+		for entry in players_data:
+			if int(entry[0]) != 1:
+				Net.self_id = int(entry[0])
+				if player:
+					player.peer_id = Net.self_id
+		print("COOP: first snapshot players=", players_data.size(), " enemies=", enemies_data.size())
+	# players
+	var seen: Array[int] = []
+	for entry in players_data:
+		var id := int(entry[0])
+		seen.append(id)
+		var target := _find_player(id)
+		if target == null:
+			target = _spawn_player(id, Vector3(float(entry[1]), float(entry[2]), float(entry[3])), id != Net.self_id)
+		var pos := Vector3(float(entry[1]), float(entry[2]), float(entry[3]))
+		if id == Net.self_id:
+			target.global_position = target.global_position.lerp(pos, 0.4)
+		else:
+			target.global_position = target.global_position.lerp(pos, 0.5)
+		target.yaw = float(entry[4])
+		target.pitch = float(entry[5])
+		target.health = float(entry[6])
+		target.dead = bool(entry[7])
+		target.health_changed.emit(target.health, target.max_health)
+	for p in _players.duplicate():
+		if is_instance_valid(p) and int(p.peer_id) not in seen and int(p.peer_id) != Net.self_id:
+			_free_now(p)
+			_players.erase(p)
+	# enemies
+	var enemy_seen: Array[int] = []
+	for entry in enemies_data:
+		var eid := int(entry[0])
+		enemy_seen.append(eid)
+		var node: Node = _remote_enemies.get(eid)
+		if not is_instance_valid(node):
+			node = ENEMY.instantiate()
+			add_child(node)
+			node.network_remote = true
+			node.net_id = eid
+			node.enemy_type = int(entry[1])
+			_remote_enemies[eid] = node
+		node.global_position = node.global_position.lerp(Vector3(float(entry[2]), float(entry[3]), float(entry[4])), 0.5)
+		node.rotation.y = float(entry[5])
+		node.hp = float(entry[6])
+		node.elite = bool(entry[7])
+	for eid in _remote_enemies.keys():
+		if int(eid) not in enemy_seen:
+			var node: Node = _remote_enemies[eid]
+			if is_instance_valid(node):
+				_free_now(node)
+			_remote_enemies.erase(eid)
+	# meta
+	if meta.size() >= 5:
+		wave_index = int(meta[0])
+		score = int(meta[1])
+		credits = int(meta[2])
+		var remote_state := int(meta[3])
+		wave_count = int(meta[4])
+		hud.set_score(score, 1.0)
+		if remote_state == 4 and not shop_panel.visible:
+			shop_panel.open(wave_index + 2, credits)
+		elif remote_state != 4 and shop_panel.visible:
+			shop_panel.hide_panel()
+
+@rpc("authority", "call_remote", "reliable")
+func rpc_player_health(peer_id: int, hp: float) -> void:
+	if not Net.is_client:
+		return
+	var p := _find_player(peer_id)
+	if p:
+		p.health = hp
+		p.health_changed.emit(p.health, p.max_health)
+		if hp <= 0.0:
+			p.dead = true
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_enemy_hit(eid: int, damage: float, head: bool) -> void:
+	if not Net.is_host:
+		return
+	for e in _alive:
+		if is_instance_valid(e) and int(e.net_id) == eid:
+			e.take_hit(damage, head, Vector3.FORWARD, e.global_position + Vector3.UP)
+			return
+
+@rpc("authority", "call_remote", "reliable")
+func rpc_revive(peer_id: int) -> void:
+	if not Net.is_client:
+		return
+	var p := _find_player(peer_id)
+	if p:
+		p.reset_player(Vector3(0, 0.02, 12.0), 0.0)
+		p.health = p.max_health * 0.6
+		p.health_changed.emit(p.health, p.max_health)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_buy(id: String) -> void:
+	if Net.is_host and state == State.SHOP:
+		_on_buy(id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_continue() -> void:
+	if Net.is_host and state == State.SHOP:
+		_start_next_wave()
+
+

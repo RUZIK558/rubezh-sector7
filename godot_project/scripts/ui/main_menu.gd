@@ -5,6 +5,8 @@ extends Control
 signal start_requested
 signal settings_requested
 signal quit_requested
+signal host_requested
+signal join_requested(ip: String)
 
 var _title: Label
 var _kicker: Label
@@ -13,12 +15,16 @@ var _hint: Label
 var _accent: ColorRect
 var _t := 0.0
 var _entered := false
+var _net_panel: Control
+var _ip_field: LineEdit
+var _net_status: Label
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_backdrop()
 	_build_content()
 	_build_footer()
+	_build_net_panel()
 
 func _build_backdrop() -> void:
 	var grad := Gradient.new()
@@ -126,6 +132,10 @@ func _build_content() -> void:
 	settings.custom_minimum_size = Vector2(360, 52)
 	settings.pressed.connect(func(): settings_requested.emit())
 	_buttons.add_child(settings)
+	var net := RubezhUI.button("СЕТЕВАЯ ИГРА — 100 ВОЛН", 15)
+	net.custom_minimum_size = Vector2(360, 52)
+	net.pressed.connect(func(): _net_panel.visible = true)
+	_buttons.add_child(net)
 	var quit := RubezhUI.button("ВЫЙТИ", 16)
 	quit.custom_minimum_size = Vector2(360, 52)
 	quit.pressed.connect(func(): quit_requested.emit())
@@ -157,6 +167,68 @@ func _build_footer() -> void:
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(ver)
+
+func _build_net_panel() -> void:
+	_net_panel = Control.new()
+	_net_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_net_panel.visible = false
+	add_child(_net_panel)
+	var dim := ColorRect.new()
+	dim.color = Color(0.01, 0.015, 0.02, 0.85)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_net_panel.add_child(dim)
+	var box := RubezhUI.panel(Color(0.05, 0.06, 0.07, 0.98), Color(1, 1, 1, 0.12), 5)
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	box.custom_minimum_size = Vector2(520, 330)
+	box.offset_left = -260
+	box.offset_right = 260
+	box.offset_top = -165
+	box.offset_bottom = 165
+	_net_panel.add_child(box)
+	var inner := MarginContainer.new()
+	inner.add_theme_constant_override("margin_left", 32)
+	inner.add_theme_constant_override("margin_right", 32)
+	inner.add_theme_constant_override("margin_top", 26)
+	inner.add_theme_constant_override("margin_bottom", 24)
+	box.add_child(inner)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	inner.add_child(v)
+	v.add_child(RubezhUI.label("СЕТЕВАЯ ИГРА // КООПЕРАТИВ", 10, RubezhUI.AMBER, RubezhUI.FONT_BOLD))
+	v.add_child(RubezhUI.label("100 УСИЛЕННЫХ ВОЛН", 28, RubezhUI.TEXT, RubezhUI.FONT_BLACK))
+	v.add_child(RubezhUI.label("Один игрок создаёт сервер, второй подключается по IP.", 12, RubezhUI.MUTED))
+	v.add_child(RubezhUI.vspacer(10))
+	_ip_field = LineEdit.new()
+	_ip_field.text = "127.0.0.1"
+	_ip_field.custom_minimum_size = Vector2(0, 44)
+	_ip_field.add_theme_font_override("font", RubezhUI.FONT_MEDIUM)
+	_ip_field.add_theme_font_size_override("font_size", 15)
+	_ip_field.add_theme_color_override("font_color", RubezhUI.TEXT)
+	_ip_field.add_theme_stylebox_override("normal", RubezhUI.style_box(Color(0.03, 0.04, 0.05, 0.9), Color(1, 1, 1, 0.15), 1, 3, 12))
+	v.add_child(_ip_field)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	v.add_child(row)
+	var host_btn := RubezhUI.accent_button("СОЗДАТЬ СЕРВЕР", 15)
+	host_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	host_btn.pressed.connect(func(): host_requested.emit())
+	row.add_child(host_btn)
+	var join_btn := RubezhUI.button("ПОДКЛЮЧИТЬСЯ", 15)
+	join_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	join_btn.pressed.connect(func(): join_requested.emit(_ip_field.text))
+	row.add_child(join_btn)
+	_net_status = RubezhUI.label("Порт 7777. Для игры через интернет откройте порт на хосте.", 10, RubezhUI.DIM)
+	v.add_child(_net_status)
+	var back := RubezhUI.button("НАЗАД", 14)
+	back.custom_minimum_size = Vector2(0, 40)
+	back.pressed.connect(func(): _net_panel.visible = false)
+	v.add_child(back)
+
+func set_net_status(text: String) -> void:
+	_net_status.text = text
+
+func hide_net_panel() -> void:
+	_net_panel.visible = false
 
 func _process(delta: float) -> void:
 	_t += delta
