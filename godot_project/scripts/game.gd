@@ -72,6 +72,7 @@ var _got_snapshot := false
 var _last_remote_wave := -1
 var _got_wave_banner := false
 var _sent_input_debug := false
+var _killed_self := false
 var _debug_loop_timer := 0.0
 var _faced_partner := false
 var spectating = null
@@ -176,6 +177,9 @@ func _process(delta: float) -> void:
 	if OS.get_cmdline_args().has("--auto-move") and player and state == State.PLAYING:
 		Input.action_press("move_forward")
 		Input.action_press("fire")
+	if OS.get_cmdline_args().has("--kill-self") and player and state == State.PLAYING and not _killed_self:
+		_killed_self = true
+		player.take_damage(9999.0)
 	if OS.get_cmdline_args().has("--hide-hud"):
 		hud.visible = false
 	if OS.get_cmdline_args().has("--hide-weapon") and player and player.get_weapon():
@@ -342,8 +346,7 @@ func _on_player_died(dead_player: Node = null) -> void:
 	if dead_player == player and net_mode != 0:
 		for p2 in _players:
 			if p2 != player and is_instance_valid(p2) and not p2.dead:
-				spectating = p2
-				p2.camera.current = true
+				_set_spectator(p2)
 				hud.show_banner("НАБЛЮДЕНИЕ ЗА СОЮЗНИКОМ", "ВОЗВРАТ В СЛЕДУЮЩЕЙ ВОЛНЕ", 3.0, RubezhUI.AMBER)
 				return
 	for p in _players:
@@ -455,6 +458,19 @@ func _on_net_peer_joined(id: int) -> void:
 			_spawn_player(id, _spawn_pos_for(id), true)
 		main_menu.set_net_status("ИГРОК %d ПОДКЛЮЧИЛСЯ" % id)
 
+func _set_spectator(target: Node) -> void:
+	spectating = target
+	if target:
+		target.camera.current = true
+		target.camera.make_current()
+		var model: Node = target.get_node_or_null("OperativeModel")
+		if model:
+			model.visible = false
+		if target.get_weapon():
+			target.get_weapon().set_enabled(false)
+			target.get_weapon().visible = false
+		hud.set_health(target.health, target.max_health)
+
 func _find_player(peer_id: int) -> Node:
 	for p in _players:
 		if is_instance_valid(p) and int(p.peer_id) == peer_id:
@@ -503,6 +519,9 @@ func _start_wave(index: int) -> void:
 			p.ensure_min_health(0.45)
 	if spectating and is_instance_valid(spectating):
 		spectating.camera.current = false
+		var old_model: Node = spectating.get_node_or_null("OperativeModel")
+		if old_model:
+			old_model.visible = true
 	spectating = null
 	if player and is_instance_valid(player):
 		player.camera.current = true
@@ -860,6 +879,8 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array,
 		target.health = float(entry[6])
 		target.dead = bool(entry[7])
 		target.health_changed.emit(target.health, target.max_health)
+		if spectating and target == spectating:
+			hud.set_health(target.health, target.max_health)
 	for p in _players.duplicate():
 		if is_instance_valid(p) and int(p.peer_id) not in seen and int(p.peer_id) != Net.self_id:
 			_free_now(p)
