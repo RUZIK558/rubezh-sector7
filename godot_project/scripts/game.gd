@@ -179,7 +179,11 @@ func _process(delta: float) -> void:
 		Input.action_press("fire")
 	if OS.get_cmdline_args().has("--kill-self") and player and state == State.PLAYING and not _killed_self:
 		_killed_self = true
+		player.invuln = 0.0
 		player.take_damage(9999.0)
+	if OS.get_cmdline_args().has("--spectate-look") and spectating and is_instance_valid(spectating):
+		spectating.yaw += delta * 0.9
+		spectating.rotation.y = spectating.yaw
 	if OS.get_cmdline_args().has("--hide-hud"):
 		hud.visible = false
 	if OS.get_cmdline_args().has("--hide-weapon") and player and player.get_weapon():
@@ -245,6 +249,15 @@ func _process(delta: float) -> void:
 	_hud_objective()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if spectating and is_instance_valid(spectating) and state == State.PLAYING:
+		if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			var sens := 0.0023 * Settings.mouse_sensitivity
+			spectating.yaw -= event.relative.x * sens
+			spectating.pitch = clampf(spectating.pitch - event.relative.y * sens, -1.45, 1.45)
+			spectating.rotation.y = spectating.yaw
+			spectating.camera.rotation.x = spectating.pitch
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		if settings_panel.visible:
 			return
