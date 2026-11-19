@@ -74,6 +74,7 @@ var _got_wave_banner := false
 var _sent_input_debug := false
 var _debug_loop_timer := 0.0
 var _faced_partner := false
+var spectating = null
 var _debug_pos_timer := 0.0
 var ending := false
 
@@ -210,12 +211,12 @@ func _process(delta: float) -> void:
 		_net_sync_timer -= delta
 		if _net_sync_timer <= 0.0:
 			_broadcast_snapshot()
-			_net_sync_timer = 0.1
+			_net_sync_timer = 0.08
 	elif net_mode == 2:
 		_net_sync_timer -= delta
 		if _net_sync_timer <= 0.0 and state == State.PLAYING:
 			_send_client_input()
-			_net_sync_timer = 0.066
+			_net_sync_timer = 0.05
 	if state != State.PLAYING:
 		return
 	run_time += delta
@@ -338,6 +339,13 @@ func _rebuild_arena() -> void:
 func _on_player_died(dead_player: Node = null) -> void:
 	if ending or net_mode == 2:
 		return
+	if dead_player == player and net_mode != 0:
+		for p2 in _players:
+			if p2 != player and is_instance_valid(p2) and not p2.dead:
+				spectating = p2
+				p2.camera.current = true
+				hud.show_banner("НАБЛЮДЕНИЕ ЗА СОЮЗНИКОМ", "ВОЗВРАТ В СЛЕДУЮЩЕЙ ВОЛНЕ", 3.0, RubezhUI.AMBER)
+				return
 	for p in _players:
 		if is_instance_valid(p) and not p.dead:
 			var title := "ВЫ ПОГИБЛИ" if dead_player == player else "СОЮЗНИК ПОГИБ"
@@ -459,6 +467,9 @@ func _restart_game() -> void:
 
 func _go_to_menu() -> void:
 	get_tree().paused = false
+	if net_mode != 0:
+		Net.reset()
+		net_mode = 0
 	_cleanup_run()
 	results_screen.hide_screen()
 	shop_panel.hide_panel()
@@ -486,6 +497,12 @@ func _start_wave(index: int) -> void:
 				rpc_id(int(p.peer_id), "rpc_revive", int(p.peer_id))
 		else:
 			p.ensure_min_health(0.45)
+	if spectating and is_instance_valid(spectating):
+		spectating.camera.current = false
+	spectating = null
+	if player and is_instance_valid(player):
+		player.camera.current = true
+		player.camera.make_current()
 	var def: Dictionary = _wave_def(index)
 	_spawn_queue.clear()
 	for i in int(def["scouts"]):
@@ -759,6 +776,7 @@ func _end_run(victory: bool) -> void:
 	await get_tree().create_timer(1.9).timeout
 	if state == State.RESULTS:
 		hud.visible = false
+		results_screen.set_coop_mode(net_mode != 0)
 		results_screen.show_results(data, victory)
 
 
@@ -813,7 +831,7 @@ func _broadcast_snapshot() -> void:
 	rpc("rpc_snapshot", players_data, enemies_data, pickups_data, projectiles_data,
 		[wave_index, score, credits, int(state), wave_count])
 
-@rpc("authority", "call_remote", "unreliable")
+@rpc("authority", "call_remote", "unreliable_ordered")
 func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array, projectiles_data: Array, meta: Array) -> void:
 	if not Net.is_client:
 		return
@@ -944,6 +962,13 @@ func rpc_player_health(peer_id: int, hp: float) -> void:
 		p.health_changed.emit(p.health, p.max_health)
 		if hp <= 0.0:
 			p.dead = true
+			if p == player and net_mode != 0:
+				for p2 in _players:
+					if p2 != player and is_instance_valid(p2) and not p2.dead:
+						spectating = p2
+						p2.camera.current = true
+						hud.show_banner("НАБЛЮДЕНИЕ ЗА СОЮЗНИКОМ", "ВОЗВРАТ В СЛЕДУЮЩЕЙ ВОЛНЕ", 3.0, RubezhUI.AMBER)
+						break
 
 @rpc("any_peer", "call_remote", "reliable")
 func rpc_enemy_hit(eid: int, damage: float, head: bool) -> void:
@@ -992,6 +1017,7 @@ func rpc_finish(victory: bool, data: Array) -> void:
 		"accuracy": float(data[3]), "wave": int(data[4]), "wave_total": int(data[5]),
 		"time": float(data[6]),
 	}
+	results_screen.set_coop_mode(net_mode != 0)
 	results_screen.show_results(stats, victory)
 
 
@@ -1021,7 +1047,7 @@ func debug_ray() -> Array:
 	return out
 
 
-@rpc("any_peer", "call_remote", "unreliable")
+@rpc("any_peer", "call_remote", "unreliable_ordered")
 func rpc_player_pose(_peer_id: int, x: float, y: float, z: float, yaw: float, pitch: float) -> void:
 	if not Net.is_host:
 		return

@@ -116,13 +116,8 @@ for side, sign in (("L", -1), ("R", 1)):
     cyl("LowerLeg" + side, (0, 0, -0.21), 0.09, 0.44, ARMOR, parent=shin)
     box("Boot" + side, (0, -0.05, -0.44), (0.16, 0.26, 0.12), FABRIC, 0.02, parent=shin)
 
-# Rifle held in front (points -Y in Blender -> -Z in Godot after Y-up export)
-gun = node("Weapon")
-gun.location = (0, -0.28, 1.22)
-box("Receiver", (0, -0.10, 0), (0.12, 0.42, 0.14), GUN, 0.02, parent=gun)
-box("Stock", (0, 0.16, -0.02), (0.10, 0.26, 0.12), GUN, 0.02, parent=gun)
-cyl("Barrel", (0, -0.42, 0.03), 0.022, 0.40, GUN, rot=(math.pi / 2, 0, 0), parent=gun)
-box("Magazine", (0, -0.08, -0.16), (0.08, 0.10, 0.20), GUN, parent=gun)
+# No gun mesh: the local player always sees their own first-person weapon;
+# a separate gun glued to the chest looked like it was sticking out of the belly.
 
 bpy.ops.object.select_all(action="DESELECT")
 members = [root]

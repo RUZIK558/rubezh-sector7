@@ -10,6 +10,7 @@ var _title: Label
 var _subtitle: Label
 var _rows: VBoxContainer
 var _restart: Button
+var _coop := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -71,6 +72,11 @@ func _build() -> void:
 	row.add_child(menu)
 	v.add_child(RubezhUI.vspacer(12))
 	v.add_child(RubezhUI.label("СЕКТОР 7 // ОТЧЁТ ПО ОПЕРАЦИИ", 10, RubezhUI.DIM, RubezhUI.FONT_MEDIUM))
+
+func set_coop_mode(enabled: bool) -> void:
+	_coop = enabled
+	if _restart:
+		_restart.visible = not enabled
 
 func show_results(data: Dictionary, victory: bool) -> void:
 	var accent := RubezhUI.GREEN if victory else RubezhUI.RED
