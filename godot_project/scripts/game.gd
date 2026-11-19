@@ -69,6 +69,10 @@ var _remote_enemies: Dictionary = {}
 var _remote_pickups: Dictionary = {}
 var _remote_projectiles: Dictionary = {}
 var _got_snapshot := false
+var _last_remote_wave := -1
+var _got_wave_banner := false
+var _sent_input_debug := false
+var _debug_loop_timer := 0.0
 var _faced_partner := false
 var _debug_pos_timer := 0.0
 var ending := false
@@ -145,6 +149,11 @@ func _build_ui() -> void:
 	shop_panel.continue_requested.connect(_start_next_wave)
 
 func _process(delta: float) -> void:
+	if OS.get_cmdline_args().has("--debug-loop"):
+		_debug_loop_timer -= delta
+		if _debug_loop_timer <= 0.0:
+			_debug_loop_timer = 2.0
+			print("COOP: loop net=", net_mode, " state=", state, " is_client=", Net.is_client, " NetPeer=", Net.peer, " treePeer=", multiplayer.multiplayer_peer, " status=", (multiplayer.get_connection_status() if multiplayer.multiplayer_peer else -9))
 	if state == State.MENU:
 		_menu_angle += delta * 0.055
 		_menu_time += delta
@@ -163,6 +172,9 @@ func _process(delta: float) -> void:
 			var m := p2.get_node_or_null("OperativeModel")
 			if m:
 				m.visible = false
+	if OS.get_cmdline_args().has("--auto-move") and player and state == State.PLAYING:
+		Input.action_press("move_forward")
+		Input.action_press("fire")
 	if OS.get_cmdline_args().has("--hide-hud"):
 		hud.visible = false
 	if OS.get_cmdline_args().has("--hide-weapon") and player and player.get_weapon():
@@ -218,13 +230,14 @@ func _process(delta: float) -> void:
 	if _event_timer <= 0.0 and net_mode != 2:
 		_trigger_event()
 		_event_timer = randf_range(28.0, 46.0)
-	_spawn_timer -= delta
-	if _spawn_queue.size() > 0 and _spawn_timer <= 0.0:
-		_spawn_enemy(_spawn_queue.pop_front())
-		_spawn_timer = float(_wave_def(wave_index + 1)["interval"]) * randf_range(0.75, 1.3)
+	if net_mode != 2:
+		_spawn_timer -= delta
+		if _spawn_queue.size() > 0 and _spawn_timer <= 0.0:
+			_spawn_enemy(_spawn_queue.pop_front())
+			_spawn_timer = float(_wave_def(wave_index + 1)["interval"]) * randf_range(0.75, 1.3)
+		if _spawn_queue.is_empty() and _alive.is_empty() and _spawn_timer < -0.4:
+			_wave_cleared()
 	_hud_objective()
-	if _spawn_queue.is_empty() and _alive.is_empty() and _spawn_timer < -0.4:
-		_wave_cleared()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
@@ -267,6 +280,7 @@ func start_game(mode: int = 0) -> void:
 				_spawn_player(id, _spawn_pos_for(id), true)
 	menu_camera.current = false
 	player.camera.current = true
+	player.camera.make_current()
 	player.health_changed.connect(hud.set_health)
 	player.damaged.connect(func(_amount: float, source: Vector3): hud.damage_from(source))
 	player.notice.connect(hud.notice)
@@ -278,7 +292,8 @@ func start_game(mode: int = 0) -> void:
 	player.set_active(true)
 	state = State.PLAYING
 	AudioManager.play_music("combat")
-	_start_wave(1)
+	if net_mode != 2:
+		_start_wave(1)
 
 func _cleanup_run() -> void:
 	ending = true
@@ -394,7 +409,13 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
+	p.set_active(true)
 	p.camera.current = not remote
+	if not remote:
+		p.camera.make_current()
+	elif player and is_instance_valid(player):
+		player.camera.make_current()
+		menu_camera.current = false
 	print("COOP: spawn peer=", peer_id, " remote=", remote, " pos=", p.global_position)
 	p.died.connect(func(): _on_player_died(p))
 	_players.append(p)
@@ -609,7 +630,7 @@ func _event_reinforcement() -> void:
 		_spawn_enemy(3)
 
 func _spawn_enemy(type: int) -> void:
-	if state != State.PLAYING or arena == null:
+	if net_mode == 2 or state != State.PLAYING or arena == null:
 		return
 	var points: Array[Dictionary] = arena.spawn_points
 	if points.is_empty():
@@ -642,6 +663,8 @@ func _spawn_enemy(type: int) -> void:
 	_hud_objective()
 
 func _on_summon_requested(origin: Vector3) -> void:
+	if net_mode == 2:
+		return
 	hud.notice("«ТИТАН» ВЫЗЫВАЕТ ПОДКРЕПЛЕНИЕ")
 	for i in 3:
 		var e = ENEMY.instantiate()
@@ -688,6 +711,8 @@ func _on_hit_confirmed(headshot: bool) -> void:
 	AudioManager.play("hitmarker", -4.0 if headshot else 0.0)
 
 func _maybe_drop(pos: Vector3) -> void:
+	if net_mode == 2:
+		return
 	var roll := randf()
 	if roll > 0.58:
 		return
@@ -741,7 +766,8 @@ func _end_run(victory: bool) -> void:
 func _send_client_input() -> void:
 	if not Net.is_client or player == null:
 		return
-	if multiplayer.multiplayer_peer == null or multiplayer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+	print("COOP: send input peer=", multiplayer.multiplayer_peer, " status=", (multiplayer.multiplayer_peer.get_connection_status() if multiplayer.multiplayer_peer else -1))
+	if multiplayer.multiplayer_peer == null or multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
 	var data := [
 		Input.is_action_pressed("fire"), Input.is_action_pressed("aim"),
@@ -753,6 +779,9 @@ func _send_client_input() -> void:
 		player.net_look.x, player.net_look.y,
 	]
 	player.net_look = Vector2.ZERO
+	if not _sent_input_debug:
+		_sent_input_debug = true
+		print("COOP: sending input conn=", (multiplayer.multiplayer_peer.get_connection_status() if multiplayer.multiplayer_peer else -1))
 	rpc_id(1, "rpc_input", data)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -761,6 +790,7 @@ func rpc_input(data: Array) -> void:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	var p := _find_player(id)
+	print("COOP: input from ", id, " -> player ", (p.peer_id if p else -1))
 	if p:
 		p.set_remote_input(data)
 
@@ -806,6 +836,8 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array,
 		var target := _find_player(id)
 		if target == null:
 			target = _spawn_player(id, _spawn_pos_for(id), id != Net.self_id)
+		if player and is_instance_valid(player):
+			player.camera.make_current()
 		var pos := Vector3(float(entry[1]), float(entry[2]), float(entry[3]))
 		if id == Net.self_id:
 			target.global_position = target.global_position.lerp(pos, 0.4)
@@ -892,6 +924,14 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array,
 		var remote_state := int(meta[3])
 		wave_count = int(meta[4])
 		hud.set_score(score, 1.0)
+		hud.set_objective(enemies_data.size())
+		if wave_index != _last_remote_wave:
+			_last_remote_wave = wave_index
+			var wave_name: String = WAVE_NAMES[wave_index % WAVE_NAMES.size()]
+			hud.set_wave(wave_index + 1, wave_count, wave_name, enemies_data.size())
+			if not _got_wave_banner:
+				_got_wave_banner = true
+				hud.show_banner("ВОЛНА %d / %d" % [wave_index + 1, wave_count], wave_name, 2.2)
 		if remote_state == 4 and not shop_panel.visible:
 			state = State.SHOP
 			if player:
