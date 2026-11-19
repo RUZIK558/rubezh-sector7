@@ -412,12 +412,16 @@ func _spawn_player(peer_id: int, pos: Vector3, remote: bool) -> Node:
 		print("COOP: operative model added for ", peer_id)
 		var body := OPERATIVE.instantiate()
 		body.name = "OperativeModel"
+		body.rotation_degrees.y = 180.0
 		p.add_child(body)
 		for mi in body.find_children("*", "MeshInstance3D", true, false):
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.global_position = pos
 	p.reset_player(pos, 0.0)
 	p.set_active(true)
+	if remote and p.get_weapon():
+		p.get_weapon().set_enabled(false)
+		p.get_weapon().visible = false
 	p.camera.current = not remote
 	if not remote:
 		p.camera.make_current()

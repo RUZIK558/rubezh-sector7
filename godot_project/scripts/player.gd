@@ -355,9 +355,9 @@ func _animate_remote_model(delta: float) -> void:
 	if thigh_r:
 		thigh_r.rotation.x = -swing * 0.55
 	if arm_l:
-		arm_l.rotation.x = -swing * 0.25
+		arm_l.rotation.x = -1.15 + swing * 0.18
 	if arm_r:
-		arm_r.rotation.x = swing * 0.25
+		arm_r.rotation.x = -1.15 - swing * 0.18
 
 func pressed(action: String) -> bool:
 	if network_remote:

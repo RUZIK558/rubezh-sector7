@@ -116,8 +116,18 @@ for side, sign in (("L", -1), ("R", 1)):
     cyl("LowerLeg" + side, (0, 0, -0.21), 0.09, 0.44, ARMOR, parent=shin)
     box("Boot" + side, (0, -0.05, -0.44), (0.16, 0.26, 0.12), FABRIC, 0.02, parent=shin)
 
-# No gun mesh: the local player always sees their own first-person weapon;
-# a separate gun glued to the chest looked like it was sticking out of the belly.
+# Rifle parented to the right arm so it follows the aim pose exactly.
+# Arm local -Z is the hand direction; barrel extends along -Z.
+arm_r = bpy.data.objects["ArmR"]
+gun = bpy.data.objects.new("Weapon", None)
+gun.parent = arm_r
+bpy.context.collection.objects.link(gun)
+gun.location = (0, -0.02, -0.70)
+box("Receiver", (0, 0, -0.10), (0.11, 0.10, 0.34), GUN, 0.02, parent=gun)
+box("Stock", (0, 0, 0.12), (0.09, 0.09, 0.20), GUN, 0.02, parent=gun)
+cyl("Barrel", (0, 0, -0.42), 0.022, 0.34, GUN, rot=(0, 0, 0), parent=gun)
+box("Magazine", (0, 0, -0.04), (0.07, 0.07, 0.16), GUN, parent=gun)
+box("Handguard", (0, 0, -0.30), (0.09, 0.09, 0.18), ARMOR, 0.01, parent=gun)
 
 bpy.ops.object.select_all(action="DESELECT")
 members = [root]
