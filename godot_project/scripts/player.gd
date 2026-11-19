@@ -78,6 +78,9 @@ func _physics_process(delta: float) -> void:
 		return
 	_time_since_damage += delta
 	invuln = maxf(0.0, invuln - delta)
+	if network_remote and Net.is_host:
+		_animate_remote_model(delta)
+		return
 	_update_throwables(delta)
 	_animate_remote_model(delta)
 	_update_camera(delta)

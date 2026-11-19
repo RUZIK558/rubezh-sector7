@@ -202,7 +202,7 @@ func _process(delta: float) -> void:
 		if _debug_pos_timer <= 0.0:
 			_debug_pos_timer = 2.0
 			var cam: Camera3D = player.camera
-			print("DEBUG state=", state, " me=", player.global_position, " cam=", cam.global_position, " rot=", cam.rotation, " pitch=", player.pitch, " net=", net_mode, " hubvis=", player.get_weapon().visible, " ray=", debug_ray(), " activecam=", (get_viewport().get_camera_3d().get_parent().name if get_viewport().get_camera_3d() else "NONE"), " campos=", (get_viewport().get_camera_3d().global_position if get_viewport().get_camera_3d() else Vector3.ZERO))
+			print("DEBUG state=", state, " me=", player.global_position, " cam=", cam.global_position, " rot=", cam.rotation, " pitch=", player.pitch, " net=", net_mode, " inp=", player.move_vector(), " vel=", player.velocity, " hubvis=", player.get_weapon().visible, " ray=", debug_ray(), " activecam=", (get_viewport().get_camera_3d().get_parent().name if get_viewport().get_camera_3d() else "NONE"), " campos=", (get_viewport().get_camera_3d().global_position if get_viewport().get_camera_3d() else Vector3.ZERO))
 			for p2 in _players:
 				if p2 != player:
 					print("DEBUG partner=", p2.peer_id, " pos=", p2.global_position, " remote=", p2.network_remote)
@@ -766,23 +766,15 @@ func _end_run(victory: bool) -> void:
 func _send_client_input() -> void:
 	if not Net.is_client or player == null:
 		return
-	print("COOP: send input peer=", multiplayer.multiplayer_peer, " status=", (multiplayer.multiplayer_peer.get_connection_status() if multiplayer.multiplayer_peer else -1))
 	if multiplayer.multiplayer_peer == null or multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
-	var data := [
-		Input.is_action_pressed("fire"), Input.is_action_pressed("aim"),
-		Input.is_action_pressed("reload"), Input.is_action_pressed("jump"),
-		Input.is_action_pressed("crouch"), Input.is_action_pressed("sprint"),
-		Input.is_action_pressed("throw_knife"), Input.is_action_pressed("grenade"),
-		Input.is_action_pressed("move_forward"), Input.is_action_pressed("move_back"),
-		Input.is_action_pressed("move_left"), Input.is_action_pressed("move_right"),
-		player.net_look.x, player.net_look.y,
-	]
-	player.net_look = Vector2.ZERO
 	if not _sent_input_debug:
 		_sent_input_debug = true
-		print("COOP: sending input conn=", (multiplayer.multiplayer_peer.get_connection_status() if multiplayer.multiplayer_peer else -1))
-	rpc_id(1, "rpc_input", data)
+		print("COOP: sending pose")
+	rpc_id(1, "rpc_player_pose", Net.self_id,
+		player.global_position.x, player.global_position.y, player.global_position.z,
+		player.yaw, player.pitch)
+	player.net_look = Vector2.ZERO
 
 @rpc("any_peer", "call_remote", "reliable")
 func rpc_input(data: Array) -> void:
@@ -839,9 +831,7 @@ func rpc_snapshot(players_data: Array, enemies_data: Array, pickups_data: Array,
 		if player and is_instance_valid(player):
 			player.camera.make_current()
 		var pos := Vector3(float(entry[1]), float(entry[2]), float(entry[3]))
-		if id == Net.self_id:
-			target.global_position = target.global_position.lerp(pos, 0.4)
-		else:
+		if id != Net.self_id:
 			target.global_position = target.global_position.lerp(pos, 0.5)
 		target.yaw = float(entry[4])
 		target.pitch = float(entry[5])
@@ -1029,3 +1019,17 @@ func debug_ray() -> Array:
 		else:
 			out.append(str(r.collider.get_parent().name) + "/" + str(r.collider.name) + "@" + str(snappedf(r.distance, 0.2)) + " pos=" + str(r.collider.global_position))
 	return out
+
+
+@rpc("any_peer", "call_remote", "unreliable")
+func rpc_player_pose(_peer_id: int, x: float, y: float, z: float, yaw: float, pitch: float) -> void:
+	if not Net.is_host:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id == 1:
+		return
+	var p := _find_player(id)
+	if p:
+		p.global_position = p.global_position.lerp(Vector3(x, y, z), 0.6)
+		p.yaw = yaw
+		p.pitch = pitch
